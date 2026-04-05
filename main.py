@@ -1,38 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════════╗
-║     TELEGRAM BOT - FORCE JOIN VERIFICATION WRAPPER v2.0             ║
-║   Channel + Group Support | Owner-Only Admin | Dynamic Config        ║
-║   Original Bot Importer | Verified Middleware | Global Check         ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-📖 SETUP GUIDE (Pehle Yeh Zaroor Pado!):
-──────────────────────────────────────────
-  1. pip install python-telegram-bot
-  2. Neeche BOT_TOKEN aur OWNER_ID set karo
-  3. Apna bot.py isi folder mein rakho
-  4. python main.py se run karo — bot.py ke handlers AUTO-DETECT ho jayenge!
-  5. /add se channels/groups add karo
-
-  ⚠️  ZAROORI: bot.py isi folder mein hona chahiye
-  ⚠️  main.py chalao, bot.py NAHI — main.py automatically bot.py load karega
-  ⚠️  Bot ko channels/groups mein ADMIN banana ZAROOR hai (join request perm)
-
-  📁 FILE STRUCTURE:
-  ├── main.py       ← YE FILE CHALAO (verification + auto-loads bot.py)
-  ├── bot.py        ← tumhara original bot (ISKO DIRECTLY MAT CHALAO)
-  ├── config.json   ← auto banega (channels/groups store hoge)
-  └── users.json    ← auto banega (verified users store hoge)
-
-  🔄 AUTO-DETECT KAISE KAAM KARTA HAI:
-  main.py, bot.py ka Application.add_handler intercept karta hai.
-  Bot.py jab apne handlers register karta hai, hum unhe capture kar lete hain.
-  Phir verification middleware wrap karke apne app mein add kar dete hain.
-  Aapko kuch bhi manually add NAHI karna!
-"""
-
-# ============================================
-# 📦 IMPORTS
-# ============================================
 import asyncio
 import importlib
 import inspect
@@ -69,8 +34,8 @@ from telegram.ext import (
 # ============================================
 # ⚙️ CONFIGURATION — YAHAN APNI VALUES BHARO
 # ============================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"       # 🤖 @BotFather se milega
-OWNER_ID = 123456789                     # 👑 Tumhara Telegram User ID (integer)
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"       # 🤖 @BotFather se milega
+OWNER_ID = 8395315423                     # 👑 Tumhara Telegram User ID (integer)
 
 # ============================================
 # 📂 FILE PATHS
