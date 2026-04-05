@@ -1,34 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════════╗
-║     TELEGRAM BOT - FORCE JOIN VERIFICATION WRAPPER v2.0             ║
-║   Channel + Group Support | Owner-Only Admin | Dynamic Config        ║
-║   Original Bot Importer | Verified Middleware | Global Check         ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-# ============================================
-# 📖 SETUP GUIDE (Pehle Yeh Zaroor Pado!)
-# ============================================
-# 1. pip install python-telegram-bot
-# 2. Neeche BOT_TOKEN aur OWNER_ID fill karo
-# 3. Bot run karo: python main.py
-# 4. /add command se channels/groups add karo
-# 5. Apne bot.py ke handlers register_bot_handlers() mein add karo
-#
-# 📁 FILE STRUCTURE:
-# main.py     ← ye file (verification + admin wrapper)
-# bot.py      ← tumhara original bot (saare features yahan hain)
-# config.json ← channels/groups data (auto create hoga)
-# users.json  ← verified users data (auto create hoga)
-#
-# ⚡ HOW IT WORKS:
-#   User aata hai → Verification check → Join nahi kiya? → Join karo
-#   Join kar liya → Verified ho gaye → bot.py ke features mil gaye!
-# ============================================
-"""
-
-# ============================================
-# 📦 REQUIRED LIBRARIES IMPORT
-# ============================================
 import asyncio
 import json
 import logging
@@ -63,8 +32,8 @@ from telegram.ext.filters import UpdateFilter
 # ============================================
 # ⚙️ CONFIGURATION — YAHAN APNI DETAILS BHARO
 # ============================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"       # 🔑 @BotFather se mila token
-OWNER_ID  = 123456789                   # 👑 Tumhara Telegram User ID (int)
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"       # 🔑 @BotFather se mila token
+OWNER_ID  = 8395315423                  # 👑 Tumhara Telegram User ID (int)
 
 CONFIG_FILE = "config.json"             # 📁 Channels/Groups ka data
 USERS_FILE  = "users.json"             # 📁 Verified users ka data
