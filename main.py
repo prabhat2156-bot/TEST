@@ -1,29 +1,3 @@
-# ============================================
-# SETUP GUIDE
-# ============================================
-# 1. pip install python-telegram-bot
-# 2. Set BOT_TOKEN and OWNER_ID below
-# 3. Place your bot.py in the same folder (optional — works without it too)
-# 4. Run: python main.py
-# 5. Use Admin Panel (owner only) to add channels/groups
-#
-# FILE STRUCTURE:
-# main.py     <- RUN THIS FILE
-# bot.py      <- Your original bot (optional, don't run directly)
-# config.json <- Auto-created (stores channel/group config)
-# users.json  <- Auto-created (stores verified users)
-#
-# HOW TO GET CHAT ID:
-# - Add @RawDataBot to your channel/group
-# - Or forward a message from channel to @userinfobot
-# - Chat ID looks like: -1001234567890
-#
-# IMPORTANT:
-# - Bot must be ADMIN in all channels/groups for verification to work
-# - For private channels, you MUST use chat_id (not username)
-# - Join request channels: bot tracks requests but does NOT auto-approve
-# ============================================
-
 import asyncio
 import importlib.util
 import json
@@ -56,8 +30,8 @@ from telegram.ext import (
 # ============================================
 # CONFIGURATION — SET THESE
 # ============================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-OWNER_ID = 123456789  # Your Telegram user ID (integer)
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"
+OWNER_ID = 8395315423 # Your Telegram user ID (integer)
 
 # ============================================
 # LOGGING
