@@ -1,0 +1,1033 @@
+"""
+╔══════════════════════════════════════════════════════════════════════╗
+║     TELEGRAM BOT - FORCE JOIN VERIFICATION WRAPPER v2.0             ║
+║   Channel + Group Support | Owner-Only Admin | Dynamic Config        ║
+║   Original Bot Importer | Verified Middleware | Global Check         ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📖 SETUP GUIDE (Pehle Yeh Zaroor Pado!):
+──────────────────────────────────────────
+  1. pip install python-telegram-bot
+  2. Neeche BOT_TOKEN aur OWNER_ID set karo
+  3. Apna bot.py isi folder mein rakho
+  4. python main.py se run karo — bot.py ke handlers AUTO-DETECT ho jayenge!
+  5. /add se channels/groups add karo
+
+  ⚠️  ZAROORI: bot.py isi folder mein hona chahiye
+  ⚠️  main.py chalao, bot.py NAHI — main.py automatically bot.py load karega
+  ⚠️  Bot ko channels/groups mein ADMIN banana ZAROOR hai (join request perm)
+
+  📁 FILE STRUCTURE:
+  ├── main.py       ← YE FILE CHALAO (verification + auto-loads bot.py)
+  ├── bot.py        ← tumhara original bot (ISKO DIRECTLY MAT CHALAO)
+  ├── config.json   ← auto banega (channels/groups store hoge)
+  └── users.json    ← auto banega (verified users store hoge)
+
+  🔄 AUTO-DETECT KAISE KAAM KARTA HAI:
+  main.py, bot.py ka Application.add_handler intercept karta hai.
+  Bot.py jab apne handlers register karta hai, hum unhe capture kar lete hain.
+  Phir verification middleware wrap karke apne app mein add kar dete hain.
+  Aapko kuch bhi manually add NAHI karna!
+"""
+
+# ============================================
+# 📦 IMPORTS
+# ============================================
+import asyncio
+import importlib
+import inspect
+import json
+import logging
+import os
+import sys
+from datetime import datetime
+from functools import wraps
+from typing import Any, Dict, List, Optional, Tuple
+
+from telegram import (
+    Bot,
+    ChatMember,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
+from telegram.constants import ChatMemberStatus
+from telegram.error import TelegramError, Forbidden, BadRequest
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    ChatJoinRequestHandler,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    InlineQueryHandler,
+    MessageHandler,
+    filters,
+)
+
+# ============================================
+# ⚙️ CONFIGURATION — YAHAN APNI VALUES BHARO
+# ============================================
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"       # 🤖 @BotFather se milega
+OWNER_ID = 123456789                     # 👑 Tumhara Telegram User ID (integer)
+
+# ============================================
+# 📂 FILE PATHS
+# ============================================
+CONFIG_FILE = "config.json"
+USERS_FILE = "users.json"
+
+# ============================================
+# 🌐 GLOBAL STATE
+# ============================================
+# Original bot.py ka /start handler (agar override karna ho)
+original_start_handler = None
+
+# ============================================
+# 📝 LOGGING SETUP
+# ============================================
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+# ============================================
+# 💾 CONFIG MANAGEMENT (config.json)
+# ============================================
+
+def load_config() -> Dict:
+    """config.json se channels/groups load karta hai"""
+    if not os.path.exists(CONFIG_FILE):
+        default = {"channels": [], "groups": []}
+        save_config(default)
+        return default
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Ensure keys exist
+        data.setdefault("channels", [])
+        data.setdefault("groups", [])
+        return data
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error(f"Config load error: {e}")
+        return {"channels": [], "groups": []}
+
+
+def save_config(data: Dict) -> None:
+    """config.json mein channels/groups save karta hai"""
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logger.error(f"Config save error: {e}")
+
+
+def get_all_required() -> List[Dict]:
+    """Saare required channels aur groups return karta hai"""
+    config = load_config()
+    all_required = []
+    for ch in config.get("channels", []):
+        ch["type"] = "channel"
+        all_required.append(ch)
+    for gr in config.get("groups", []):
+        gr["type"] = "group"
+        all_required.append(gr)
+    return all_required
+
+# ============================================
+# 👥 USERS MANAGEMENT (users.json)
+# ============================================
+
+def load_users() -> Dict:
+    """users.json se verified users load karta hai"""
+    if not os.path.exists(USERS_FILE):
+        default = {"verified": [], "join_dates": {}}
+        save_users(default)
+        return default
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data.setdefault("verified", [])
+        data.setdefault("join_dates", {})
+        return data
+    except (json.JSONDecodeError, IOError) as e:
+        logger.error(f"Users load error: {e}")
+        return {"verified": [], "join_dates": {}}
+
+
+def save_users(data: Dict) -> None:
+    """users.json mein verified users save karta hai"""
+    try:
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logger.error(f"Users save error: {e}")
+
+
+def is_user_verified(user_id: int) -> bool:
+    """Check karta hai user verified hai ya nahi"""
+    users = load_users()
+    return user_id in users.get("verified", [])
+
+
+def mark_user_verified(user_id: int) -> None:
+    """User ko verified mark karta hai"""
+    users = load_users()
+    if user_id not in users["verified"]:
+        users["verified"].append(user_id)
+        users["join_dates"][str(user_id)] = datetime.now().isoformat()
+        save_users(users)
+
+# ============================================
+# 🔒 OWNER-ONLY DECORATOR
+# ============================================
+
+def owner_only(func):
+    """Sirf OWNER_ID wala user command use kar sakta hai"""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user is None or user.id != OWNER_ID:
+            await update.effective_message.reply_text(
+                "🚫 *Ye command sirf bot owner ke liye hai!*",
+                parse_mode="Markdown"
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
+# ============================================
+# ✅ MEMBERSHIP VERIFICATION LOGIC
+# ============================================
+
+async def check_membership(bot: Bot, user_id: int) -> Tuple[bool, List[Dict]]:
+    """
+    User ki membership check karta hai sabhi required channels/groups mein.
+    Returns: (all_joined: bool, not_joined_list: List[Dict])
+    """
+    required = get_all_required()
+    if not required:
+        return True, []
+
+    not_joined = []
+    for entry in required:
+        chat_id = entry.get("chat_id")
+        try:
+            member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+            status = member.status
+            # Ye statuses = joined hai
+            if status not in (
+                ChatMemberStatus.MEMBER,
+                ChatMemberStatus.ADMINISTRATOR,
+                ChatMemberStatus.OWNER,
+            ):
+                not_joined.append(entry)
+        except (TelegramError, Forbidden, BadRequest) as e:
+            logger.warning(f"Membership check error for {chat_id}: {e}")
+            # Error pe skip karo (assume joined to avoid blocking)
+            continue
+
+    all_joined = len(not_joined) == 0
+    return all_joined, not_joined
+
+
+def build_join_keyboard(not_joined: List[Dict]) -> InlineKeyboardMarkup:
+    """Join karne ke liye inline keyboard banata hai"""
+    buttons = []
+    for entry in not_joined:
+        name = entry.get("name", "Channel/Group")
+        link = entry.get("link", "")
+        icon = "📢" if entry.get("type") == "channel" else "👥"
+        if link:
+            buttons.append([InlineKeyboardButton(f"{icon} {name} Join Karo", url=link)])
+    buttons.append([InlineKeyboardButton("✅ Maine Join Kar Liya — Verify Karo", callback_data="verify")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def send_join_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """User ko join karne ka message bhejta hai"""
+    user = update.effective_user
+    _, not_joined = await check_membership(context.bot, user.id)
+
+    if not not_joined:
+        # User ne sab join kar liya — verify kar do
+        mark_user_verified(user.id)
+        msg = update.effective_message
+        if msg:
+            await msg.reply_text(
+                "✅ *Verification Complete!*\n\nAb tum bot use kar sakte ho! 🎉",
+                parse_mode="Markdown"
+            )
+        return
+
+    keyboard = build_join_keyboard(not_joined)
+    msg = update.effective_message
+    if msg:
+        await msg.reply_text(
+            "🔒 *Bot Use Karne Ke Liye Pehle Join Karo!*\n\n"
+            "Neeche diye channels/groups ko join karo, phir\n"
+            "✅ *Verify Karo* button dabao:\n\n"
+            "⬇️ *Abhi Join Karo:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+# ============================================
+# 🔄 AUTO-DETECTION: BOT.PY SE HANDLERS CAPTURE
+# ============================================
+
+def load_bot_handlers() -> List[Tuple[Any, int]]:
+    """
+    bot.py se saare handlers automatically detect karta hai.
+    3 methods try karta hai — koi bhi kaam kare:
+      1. Application.add_handler monkey-patch
+      2. Module-level handler variables scan
+      3. Bot-defined handler lists scan
+    """
+    captured: List[Tuple[Any, int]] = []
+    seen_ids = set()
+
+    # ===== STEP 1: Application methods patch karo =====
+    original_add_handler = Application.add_handler
+    original_add_handlers = getattr(Application, "add_handlers", None)
+    original_run_polling = Application.run_polling
+    original_run_webhook = getattr(Application, "run_webhook", None)
+    original_init = getattr(Application, "initialize", None)
+
+    def fake_add_handler(self, handler, group: int = 0):
+        hid = id(handler)
+        if hid not in seen_ids:
+            seen_ids.add(hid)
+            captured.append((handler, group))
+
+    def fake_add_handlers(self, handlers, group: int = 0):
+        if isinstance(handlers, dict):
+            for grp, hlist in handlers.items():
+                for h in hlist:
+                    fake_add_handler(self, h, grp)
+        elif isinstance(handlers, (list, tuple)):
+            for h in handlers:
+                fake_add_handler(self, h, group)
+
+    async def fake_run_polling(self, **kwargs):
+        pass  # Actual polling shuru mat karo
+
+    async def fake_run_webhook(self, **kwargs):
+        pass  # Webhook bhi nahi
+
+    async def fake_initialize(self):
+        pass  # Initialization skip
+
+    # ===== Patch apply karo =====
+    Application.add_handler = fake_add_handler
+    if original_add_handlers:
+        Application.add_handlers = fake_add_handlers
+    Application.run_polling = fake_run_polling
+    if original_run_webhook:
+        Application.run_webhook = fake_run_webhook
+    if original_init:
+        Application.initialize = fake_initialize
+
+    # ApplicationBuilder ka build() bhi patch karo
+    # (kuch bots builder pattern use karte hain)
+    original_build = ApplicationBuilder.build
+
+    def fake_build(self):
+        # Ek fake Application banao jo handlers capture kare
+        app = original_build(self)
+        return app
+
+    try:
+        # ===== STEP 2: bot module import karo (fresh) =====
+        if "bot" in sys.modules:
+            del sys.modules["bot"]
+
+        # Bot module ka directory add karo sys.path mein
+        bot_dir = os.path.dirname(os.path.abspath(__file__))
+        if bot_dir not in sys.path:
+            sys.path.insert(0, bot_dir)
+
+        import bot as bot_module
+        logger.info("✅ bot.py successfully import hua!")
+
+        # ===== STEP 3: Entry point functions call karo =====
+        entry_points = [
+            "main", "setup", "create_app", "build_app",
+            "start_bot", "run_bot", "register_handlers",
+            "setup_handlers", "init_bot", "init",
+        ]
+
+        for func_name in entry_points:
+            if hasattr(bot_module, func_name) and callable(getattr(bot_module, func_name)):
+                func = getattr(bot_module, func_name)
+                try:
+                    sig = inspect.signature(func)
+                    params = sig.parameters
+                    # Agar function parameters maange toh skip karo
+                    # (async functions bhi handle karo)
+                    if len(params) == 0:
+                        if asyncio.iscoroutinefunction(func):
+                            # Async main — ek new event loop mein try karo
+                            try:
+                                loop = asyncio.new_event_loop()
+                                loop.run_until_complete(asyncio.wait_for(func(), timeout=5.0))
+                                loop.close()
+                            except (asyncio.TimeoutError, RuntimeError, SystemExit):
+                                pass
+                        else:
+                            func()
+                        logger.info(f"✅ bot.py ka '{func_name}()' call hua — handlers capture hue")
+                        break  # Ek entry point kafi hai
+                except SystemExit:
+                    pass  # Bot sys.exit() call kare toh handle karo
+                except Exception as e:
+                    logger.debug(f"Entry point '{func_name}' failed: {e}")
+
+        # ===== STEP 4: Module-level handler variables scan karo =====
+        handler_types = (
+            CommandHandler,
+            MessageHandler,
+            CallbackQueryHandler,
+            InlineQueryHandler,
+            ConversationHandler,
+        )
+        for name in dir(bot_module):
+            if name.startswith("_"):
+                continue
+            try:
+                obj = getattr(bot_module, name)
+                if isinstance(obj, handler_types):
+                    hid = id(obj)
+                    if hid not in seen_ids:
+                        seen_ids.add(hid)
+                        captured.append((obj, 0))
+                        logger.debug(f"  → Variable handler mila: {name}")
+            except Exception:
+                continue
+
+        # ===== STEP 5: Handler lists/dicts scan karo =====
+        list_names = ["handlers", "all_handlers", "handler_list", "HANDLERS",
+                      "BOT_HANDLERS", "dispatcher_handlers", "handler_groups"]
+        for list_name in list_names:
+            if hasattr(bot_module, list_name):
+                obj = getattr(bot_module, list_name)
+                if isinstance(obj, dict):
+                    for grp, hlist in obj.items():
+                        if isinstance(hlist, (list, tuple)):
+                            for h in hlist:
+                                if isinstance(h, handler_types):
+                                    hid = id(h)
+                                    if hid not in seen_ids:
+                                        seen_ids.add(hid)
+                                        captured.append((h, int(grp)))
+                elif isinstance(obj, (list, tuple)):
+                    for item in obj:
+                        if isinstance(item, tuple) and len(item) == 2:
+                            h, g = item
+                            if isinstance(h, handler_types):
+                                hid = id(h)
+                                if hid not in seen_ids:
+                                    seen_ids.add(hid)
+                                    captured.append((h, int(g)))
+                        elif isinstance(item, handler_types):
+                            hid = id(item)
+                            if hid not in seen_ids:
+                                seen_ids.add(hid)
+                                captured.append((item, 0))
+
+    except ImportError as e:
+        logger.error(f"❌ bot.py import nahi hua: {e}")
+        logger.error("   bot.py isi folder mein rakhein!")
+    except Exception as e:
+        logger.error(f"❌ bot.py load karne mein error: {e}")
+    finally:
+        # ===== STEP 6: Saari patches restore karo =====
+        Application.add_handler = original_add_handler
+        if original_add_handlers:
+            Application.add_handlers = original_add_handlers
+        Application.run_polling = original_run_polling
+        if original_run_webhook:
+            Application.run_webhook = original_run_webhook
+        if original_init:
+            Application.initialize = original_init
+
+    logger.info(f"🔍 Total {len(captured)} handlers detect hue bot.py se!")
+    return captured
+
+# ============================================
+# 🛡️ HANDLER WRAPPING — VERIFICATION MIDDLEWARE
+# ============================================
+
+def wrap_handler_with_verification(handler: Any) -> Any:
+    """
+    Kisi bhi handler ke callback ko verification middleware se wrap karta hai.
+    ConversationHandler ke liye entry_points wrap karta hai.
+    """
+    if isinstance(handler, ConversationHandler):
+        # ConversationHandler — sirf entry points wrap karo
+        wrapped_entries = []
+        for ep in handler.entry_points:
+            wrapped_entries.append(_wrap_single_handler(ep))
+        handler.entry_points = wrapped_entries
+        # Note: States aur fallbacks wrap nahi karte — agar user verified hai
+        #       toh conversation already start ho chuka hai
+        return handler
+
+    return _wrap_single_handler(handler)
+
+
+def _wrap_single_handler(handler: Any) -> Any:
+    """
+    Ek single handler ka callback wrap karta hai verification check ke saath.
+    """
+    if not hasattr(handler, "callback"):
+        return handler
+
+    original_callback = handler.callback
+
+    @wraps(original_callback)
+    async def verified_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+
+        # User nahi hai (e.g. channel posts) — seedha original call karo
+        if user is None:
+            return await original_callback(update, context)
+
+        # Owner bypass — verification skip
+        if user.id == OWNER_ID:
+            return await original_callback(update, context)
+
+        # Pehle se verified hai?
+        if is_user_verified(user.id):
+            # Double-check membership (agar baad mein leave kar diya ho)
+            all_joined, not_joined = await check_membership(context.bot, user.id)
+            if all_joined:
+                return await original_callback(update, context)
+            else:
+                # Verified tha lekin ab member nahi — re-verify karo
+                users = load_users()
+                if user.id in users.get("verified", []):
+                    users["verified"].remove(user.id)
+                    save_users(users)
+                await send_join_message(update, context)
+                return
+
+        # Required channels/groups hain hi nahi — sab allow
+        required = get_all_required()
+        if not required:
+            mark_user_verified(user.id)
+            return await original_callback(update, context)
+
+        # Verification check karo
+        all_joined, _ = await check_membership(context.bot, user.id)
+        if all_joined:
+            mark_user_verified(user.id)
+            return await original_callback(update, context)
+        else:
+            await send_join_message(update, context)
+
+    handler.callback = verified_callback
+    return handler
+
+# ============================================
+# 🚀 VERIFICATION /start COMMAND
+# ============================================
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /start command — verification check karta hai.
+    Agar verified hai toh original bot.py ka start call karta hai.
+    """
+    user = update.effective_user
+    required = get_all_required()
+
+    # Owner ke liye seedha original start
+    if user.id == OWNER_ID:
+        if original_start_handler:
+            return await original_start_handler(update, context)
+        await update.message.reply_text(
+            f"👑 *Owner Mode Active!*\n\nNamaste {user.first_name}! Bot chal raha hai. 🚀",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Koi required channels nahi — bot directly use ho
+    if not required:
+        mark_user_verified(user.id)
+        if original_start_handler:
+            return await original_start_handler(update, context)
+        await update.message.reply_text(
+            f"🙏 *Namaste {user.first_name}!*\n\nBot mein aapka swagat hai! 🎉",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Membership check
+    all_joined, not_joined = await check_membership(context.bot, user.id)
+    if all_joined:
+        mark_user_verified(user.id)
+        if original_start_handler:
+            return await original_start_handler(update, context)
+        await update.message.reply_text(
+            f"✅ *Verification Complete!*\n\nNamaste {user.first_name}! Ab bot use karo. 🎉",
+            parse_mode="Markdown"
+        )
+    else:
+        keyboard = build_join_keyboard(not_joined)
+        await update.message.reply_text(
+            f"🙏 *Namaste {user.first_name}!*\n\n"
+            "Bot use karne ke liye pehle yeh join karo:\n\n"
+            "⬇️ *Neeche diye channels/groups join karo, phir Verify Karo button dabao:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+# ============================================
+# ✅ VERIFY CALLBACK (Inline Button)
+# ============================================
+
+async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    User ne '✅ Maine Join Kar Liya — Verify Karo' dabaya.
+    Membership check karo aur result batao.
+    """
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    all_joined, not_joined = await check_membership(context.bot, user.id)
+
+    if all_joined:
+        mark_user_verified(user.id)
+        await query.edit_message_text(
+            "🎉 *Verification Successful!*\n\n"
+            "✅ Aapne sabhi channels/groups join kar liye hain.\n"
+            "Ab tum bot freely use kar sakte ho!\n\n"
+            "👇 Bot use karne ke liye koi command bhejo.",
+            parse_mode="Markdown"
+        )
+    else:
+        keyboard = build_join_keyboard(not_joined)
+        count = len(not_joined)
+        await query.edit_message_text(
+            f"❌ *Verification Failed!*\n\n"
+            f"Aapne abhi *{count}* channel/group join nahi kiya.\n"
+            "Neeche diye links se join karo, phir dobara try karo:",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+# ============================================
+# 📥 JOIN REQUEST HANDLER
+# ============================================
+
+async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Jab koi bot ke channel/group mein join request bheje — auto approve karo
+    agar wo verified ho.
+    """
+    join_request = update.chat_join_request
+    user = join_request.from_user
+
+    if is_user_verified(user.id) or user.id == OWNER_ID:
+        try:
+            await join_request.approve()
+            logger.info(f"✅ Join request approve: {user.id} ({user.full_name})")
+        except TelegramError as e:
+            logger.error(f"Join request approve error: {e}")
+
+# ============================================
+# 👑 ADMIN COMMANDS (OWNER ONLY)
+# ============================================
+
+# --- /add command state ---
+ADD_WAITING = 1
+
+@owner_only
+async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    /add — Naya channel ya group add karo.
+    Usage: /add
+    """
+    await update.message.reply_text(
+        "➕ *Naya Channel/Group Add Karo*\n\n"
+        "Channel ya group ka *invite link ya username* bhejo.\n"
+        "Jaise: `@mychannel` ya `https://t.me/mychannel`\n\n"
+        "❌ Cancel karne ke liye: /cancel",
+        parse_mode="Markdown"
+    )
+    return ADD_WAITING
+
+
+async def add_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    User ne channel/group link bheja — add karo.
+    """
+    text = update.message.text.strip()
+    user = update.effective_user
+
+    # Sirf owner aage badhe
+    if user.id != OWNER_ID:
+        return ConversationHandler.END
+
+    # Link se chat_id fetch karo
+    try:
+        chat = await context.bot.get_chat(text)
+        chat_id = chat.id
+        chat_type = chat.type  # 'channel' or 'group'/'supergroup'
+        chat_title = chat.title or text
+
+        # Invite link banana
+        try:
+            invite_link = await context.bot.export_chat_invite_link(chat_id)
+        except TelegramError:
+            invite_link = text if text.startswith("https://") else f"https://t.me/{text.lstrip('@')}"
+
+        config = load_config()
+        entry = {
+            "chat_id": chat_id,
+            "name": chat_title,
+            "link": invite_link,
+        }
+
+        if chat_type == "channel":
+            # Duplicate check
+            if any(c["chat_id"] == chat_id for c in config["channels"]):
+                await update.message.reply_text(f"⚠️ *{chat_title}* pehle se add hai!", parse_mode="Markdown")
+                return ConversationHandler.END
+            config["channels"].append(entry)
+            icon = "📢"
+            type_str = "Channel"
+        else:
+            if any(g["chat_id"] == chat_id for g in config["groups"]):
+                await update.message.reply_text(f"⚠️ *{chat_title}* pehle se add hai!", parse_mode="Markdown")
+                return ConversationHandler.END
+            config["groups"].append(entry)
+            icon = "👥"
+            type_str = "Group"
+
+        save_config(config)
+        await update.message.reply_text(
+            f"✅ *{icon} {type_str} Add Ho Gaya!*\n\n"
+            f"📛 Naam: `{chat_title}`\n"
+            f"🆔 ID: `{chat_id}`\n"
+            f"🔗 Link: {invite_link}",
+            parse_mode="Markdown"
+        )
+
+    except TelegramError as e:
+        await update.message.reply_text(
+            f"❌ *Error!*\n\n`{e}`\n\n"
+            "Sahi link/username bhejo aur bot ko us chat ka admin banana na bhulen!",
+            parse_mode="Markdown"
+        )
+
+    return ConversationHandler.END
+
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Conversation cancel karta hai"""
+    await update.message.reply_text("❌ *Cancel ho gaya!*", parse_mode="Markdown")
+    return ConversationHandler.END
+
+
+@owner_only
+async def remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /remove <chat_id or username> — Channel/Group remove karo.
+    Usage: /remove @mychannel  ya  /remove -100123456
+    """
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "❌ *Usage:* `/remove @username` ya `/remove -100XXXXXXX`",
+            parse_mode="Markdown"
+        )
+        return
+
+    query = args[0].strip()
+    config = load_config()
+    removed = False
+    removed_name = ""
+
+    # Channel check
+    for i, ch in enumerate(config["channels"]):
+        if str(ch["chat_id"]) == query or ch.get("name", "").lower() == query.lstrip("@").lower():
+            removed_name = ch["name"]
+            config["channels"].pop(i)
+            removed = True
+            break
+
+    # Group check
+    if not removed:
+        for i, gr in enumerate(config["groups"]):
+            if str(gr["chat_id"]) == query or gr.get("name", "").lower() == query.lstrip("@").lower():
+                removed_name = gr["name"]
+                config["groups"].pop(i)
+                removed = True
+                break
+
+    if removed:
+        save_config(config)
+        await update.message.reply_text(
+            f"✅ *Remove Ho Gaya!*\n\n`{removed_name}` list se hata diya gaya.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            f"❌ `{query}` list mein nahi mila!\n"
+            "/channels se list dekho.",
+            parse_mode="Markdown"
+        )
+
+
+@owner_only
+async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/channels — Saare added channels aur groups dikhao"""
+    config = load_config()
+    channels = config.get("channels", [])
+    groups = config.get("groups", [])
+
+    if not channels and not groups:
+        await update.message.reply_text(
+            "📭 *Koi channel/group add nahi hai!*\n\n"
+            "/add se add karo.",
+            parse_mode="Markdown"
+        )
+        return
+
+    msg = "📋 *Required Channels & Groups List:*\n\n"
+
+    if channels:
+        msg += "📢 *Channels:*\n"
+        for i, ch in enumerate(channels, 1):
+            msg += f"  {i}. [{ch['name']}]({ch.get('link', '#')}) — `{ch['chat_id']}`\n"
+        msg += "\n"
+
+    if groups:
+        msg += "👥 *Groups:*\n"
+        for i, gr in enumerate(groups, 1):
+            msg += f"  {i}. [{gr['name']}]({gr.get('link', '#')}) — `{gr['chat_id']}`\n"
+
+    msg += f"\n📊 Total: *{len(channels) + len(groups)}* entries"
+    await update.message.reply_text(msg, parse_mode="Markdown", disable_web_page_preview=True)
+
+
+@owner_only
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/stats — Bot statistics dikhao"""
+    users = load_users()
+    config = load_config()
+    verified_count = len(users.get("verified", []))
+    channels_count = len(config.get("channels", []))
+    groups_count = len(config.get("groups", []))
+
+    # Handlers count
+    total_required = channels_count + groups_count
+
+    await update.message.reply_text(
+        "📊 *Bot Statistics*\n\n"
+        f"👥 Verified Users: *{verified_count}*\n"
+        f"📢 Required Channels: *{channels_count}*\n"
+        f"👥 Required Groups: *{groups_count}*\n"
+        f"🔒 Total Required: *{total_required}*\n\n"
+        f"🤖 Bot Status: ✅ Running",
+        parse_mode="Markdown"
+    )
+
+
+@owner_only
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /broadcast <message> — Sabhi verified users ko message bhejo.
+    Usage: /broadcast Hello everyone!
+    """
+    if not context.args:
+        await update.message.reply_text(
+            "❌ *Usage:* `/broadcast <message>`\n\nJaise: `/broadcast Naya update aa gaya!`",
+            parse_mode="Markdown"
+        )
+        return
+
+    message_text = " ".join(context.args)
+    users = load_users()
+    verified = users.get("verified", [])
+
+    if not verified:
+        await update.message.reply_text("📭 Koi verified user nahi hai abhi!", parse_mode="Markdown")
+        return
+
+    status_msg = await update.message.reply_text(
+        f"📤 *Broadcast shuru ho raha hai...*\n0/{len(verified)} bheja",
+        parse_mode="Markdown"
+    )
+
+    success = 0
+    failed = 0
+    for uid in verified:
+        try:
+            await context.bot.send_message(
+                chat_id=uid,
+                text=f"📢 *Bot Update:*\n\n{message_text}",
+                parse_mode="Markdown"
+            )
+            success += 1
+        except TelegramError:
+            failed += 1
+        # Rate limit se bachne ke liye thodi der ruko
+        await asyncio.sleep(0.05)
+
+    await status_msg.edit_text(
+        f"✅ *Broadcast Complete!*\n\n"
+        f"✔️ Bheja: *{success}*\n"
+        f"❌ Failed: *{failed}*\n"
+        f"📊 Total: *{len(verified)}*",
+        parse_mode="Markdown"
+    )
+
+# ============================================
+# ❗ ERROR HANDLER
+# ============================================
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Saari errors handle karta hai"""
+    logger.error(f"Error: {context.error}", exc_info=context.error)
+    # Owner ko critical errors notify karo
+    try:
+        if update and hasattr(update, "effective_message") and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ Kuch error aa gaya! Thodi der baad dobara try karo.",
+            )
+    except Exception:
+        pass
+
+# ============================================
+# 🏗️ APPLICATION BUILD — EVERYTHING ASSEMBLE
+# ============================================
+
+def build_application() -> Application:
+    """
+    Puri application build karta hai:
+    1. Verification handlers add karo
+    2. Admin commands add karo
+    3. bot.py ke handlers AUTO-DETECT karo aur wrap karo
+    """
+    global original_start_handler
+
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # ── GROUP 0: Verification aur Admin handlers (highest priority) ──
+
+    # /start — verification aware
+    app.add_handler(CommandHandler("start", start_command), group=0)
+
+    # ✅ Verify button callback
+    app.add_handler(
+        CallbackQueryHandler(verify_callback, pattern="^verify$"),
+        group=0
+    )
+
+    # /add conversation handler
+    add_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("add", add_command)],
+        states={
+            ADD_WAITING: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_receive)
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_command)],
+    )
+    app.add_handler(add_conv_handler, group=0)
+
+    # Owner-only commands
+    app.add_handler(CommandHandler("remove", remove_command), group=0)
+    app.add_handler(CommandHandler("channels", channels_command), group=0)
+    app.add_handler(CommandHandler("stats", stats_command), group=0)
+    app.add_handler(CommandHandler("broadcast", broadcast_command), group=0)
+
+    # Join request handler
+    app.add_handler(ChatJoinRequestHandler(handle_join_request), group=0)
+
+    # ── GROUP 1+: bot.py ke auto-detected handlers ──
+
+    logger.info("🔄 bot.py se handlers detect ho rahe hain...")
+    print("\n" + "═" * 55)
+    print("  🔄 BOT.PY HANDLER AUTO-DETECTION SHURU...")
+    print("═" * 55)
+
+    bot_handlers = load_bot_handlers()
+
+    if not bot_handlers:
+        logger.warning("⚠️  bot.py se koi handler detect nahi hua!")
+        print("  ⚠️  KHABARDAR: bot.py se koi handler detect nahi hua!")
+        print("     bot.py isi folder mein hai? Application.add_handler use hota hai?")
+    else:
+        print(f"  ✅ {len(bot_handlers)} handler(s) detect hue!")
+
+    skipped = 0
+    added = 0
+    for handler, handler_group in bot_handlers:
+        # /start handler skip karo (hum apna use karenge)
+        if isinstance(handler, CommandHandler) and hasattr(handler, "commands"):
+            if "start" in handler.commands:
+                original_start_handler = handler.callback
+                logger.info("  ℹ️  bot.py ka /start capture hua — main.py ka start override karega")
+                skipped += 1
+                continue
+
+        # Verification se wrap karo
+        try:
+            wrapped = wrap_handler_with_verification(handler)
+            # bot.py ke handlers group 1 se shuru (hamare group 0 ke baad)
+            app.add_handler(wrapped, group=max(1, handler_group + 1))
+            added += 1
+        except Exception as e:
+            logger.error(f"Handler wrap/add error: {e}")
+
+    print(f"  ➕ {added} handler(s) verification ke saath add hue")
+    if skipped:
+        print(f"  ⏭️  {skipped} handler(s) skip hue (/start override)")
+    print("═" * 55 + "\n")
+
+    # Error handler
+    app.add_error_handler(error_handler)
+
+    return app
+
+# ============================================
+# ▶️ MAIN ENTRY POINT
+# ============================================
+
+def main() -> None:
+    """Bot start karta hai"""
+    print("\n" + "╔" + "═" * 53 + "╗")
+    print("║  🤖 TELEGRAM FORCE-JOIN VERIFICATION BOT v2.0  ║")
+    print("╚" + "═" * 53 + "╝\n")
+
+    # Config validation
+    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        print("❌ ERROR: BOT_TOKEN set nahi hai!")
+        print("   main.py mein BOT_TOKEN apna token se replace karo.")
+        sys.exit(1)
+
+    if OWNER_ID == 123456789:
+        print("⚠️  WARNING: OWNER_ID default hai. Apna user ID set karo!")
+
+    # Bot.py exist karta hai?
+    bot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.py")
+    if not os.path.exists(bot_path):
+        print("⚠️  WARNING: bot.py nahi mili isi folder mein!")
+        print("   Sirf verification handlers ke saath chal raha hai.")
+
+    print("🔧 Application build ho rahi hai...")
+    app = build_application()
+
+    print("✅ Bot chal raha hai! Rokne ke liye Ctrl+C dabao.\n")
+    logger.info("Bot polling shuru...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()
