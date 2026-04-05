@@ -1,25 +1,3 @@
-# ============================================
-# 📖 SETUP GUIDE
-# ============================================
-# 1. pip install python-telegram-bot
-# 2. Set BOT_TOKEN and OWNER_ID below
-# 3. Place your bot.py in the same folder
-# 4. Run: python main.py (NOT bot.py!)
-# 5. Start the bot → Use Admin Panel to add channels/groups
-#
-# IMPORTANT:
-# - Bot must be ADMIN in all channels/groups
-# - Use CHAT ID (not username) for private channels
-# - To get chat ID: forward a message from channel to @userinfobot
-#   or add bot to channel and it will log the chat_id
-#
-# 📁 FILE STRUCTURE:
-# main.py     ← RUN THIS (verification + admin + auto-loads bot.py)
-# bot.py      ← Your original bot (don't run directly)
-# config.json ← Auto-created (channel/group settings)
-# users.json  ← Auto-created (verified users)
-# ============================================
-
 import asyncio
 import importlib.util
 import inspect
@@ -54,8 +32,8 @@ from telegram.ext import (
 # ============================================
 # CONFIGURATION — EDIT THESE
 # ============================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-OWNER_ID = 123456789  # Your Telegram user ID (integer)
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"
+OWNER_ID = 8395315423 # Your Telegram user ID (integer)
 
 # ============================================
 # FILE PATHS
