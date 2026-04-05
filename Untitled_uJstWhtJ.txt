@@ -1,0 +1,1013 @@
+"""
+╔══════════════════════════════════════════════════════════════════════╗
+║     TELEGRAM BOT - FORCE JOIN VERIFICATION WRAPPER v2.0             ║
+║   Channel + Group Support | Owner-Only Admin | Dynamic Config        ║
+║   Original Bot Importer | Verified Middleware | Global Check         ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+# ============================================
+# 📖 SETUP GUIDE (Pehle Yeh Zaroor Pado!)
+# ============================================
+# 1. pip install python-telegram-bot
+# 2. Neeche BOT_TOKEN aur OWNER_ID fill karo
+# 3. Bot run karo: python main.py
+# 4. /add command se channels/groups add karo
+# 5. Apne bot.py ke handlers register_bot_handlers() mein add karo
+#
+# 📁 FILE STRUCTURE:
+# main.py     ← ye file (verification + admin wrapper)
+# bot.py      ← tumhara original bot (saare features yahan hain)
+# config.json ← channels/groups data (auto create hoga)
+# users.json  ← verified users data (auto create hoga)
+#
+# ⚡ HOW IT WORKS:
+#   User aata hai → Verification check → Join nahi kiya? → Join karo
+#   Join kar liya → Verified ho gaye → bot.py ke features mil gaye!
+# ============================================
+"""
+
+# ============================================
+# 📦 REQUIRED LIBRARIES IMPORT
+# ============================================
+import asyncio
+import json
+import logging
+import os
+from datetime import datetime
+from functools import wraps
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ChatMemberAdministrator,
+    ChatMemberOwner,
+    ChatMemberMember,
+    ChatMemberRestricted,
+)
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    TypeHandler,
+    filters,
+    ContextTypes,
+)
+from telegram.error import TelegramError, BadRequest
+from telegram.constants import ChatMemberStatus, ParseMode
+from telegram.ext.filters import UpdateFilter
+
+# ============================================
+# ⚙️ CONFIGURATION — YAHAN APNI DETAILS BHARO
+# ============================================
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"       # 🔑 @BotFather se mila token
+OWNER_ID  = 123456789                   # 👑 Tumhara Telegram User ID (int)
+
+CONFIG_FILE = "config.json"             # 📁 Channels/Groups ka data
+USERS_FILE  = "users.json"             # 📁 Verified users ka data
+
+# ============================================
+# 📦 APNA ORIGINAL BOT IMPORT KARO
+# ============================================
+# Neeche se APNI ZAROORAT ke mutabiq ek pattern uncomment karo:
+
+# --- Pattern 1: Agar bot.py mein Application object hai ---
+# from bot import app as original_app
+
+# --- Pattern 2: Agar bot.py mein individual handler functions hain ---
+# from bot import start_handler, help_handler, message_handler
+
+# --- Pattern 3: Agar bot.py ek function deta hai jo saare handlers return karta hai ---
+# from bot import get_all_handlers
+
+# --- Pattern 4: Named imports directly ---
+# from bot import (
+#     feature1_handler,
+#     feature2_handler,
+#     text_handler,
+#     button_handler,
+# )
+
+# --- Original /start handler (agar bot.py mein hai) ---
+# from bot import original_start_handler   # <-- uncomment karo
+
+# ⚠️  NOTE: Sirf ek pattern use karo jo tumhare bot.py ke structure se match kare.
+#           Agar bot.py mein Application banate ho, uska token USE NAHI KARO —
+#           sirf handler functions import karo aur neeche register_bot_handlers()
+#           mein add karo.
+
+# ============================================
+# 📝 LOGGING SETUP
+# ============================================
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+# ============================================
+# 💾 DATA HELPERS — JSON READ/WRITE
+# ============================================
+
+def load_json(filepath: str, default) -> dict | list:
+    """JSON file load karo, agar nahi hai to default return karo."""
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"⚠️  {filepath} load karne mein error: {e}")
+    return default
+
+
+def save_json(filepath: str, data) -> None:
+    """JSON file mein data save karo."""
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except IOError as e:
+        logger.error(f"⚠️  {filepath} save karne mein error: {e}")
+
+
+# ============================================
+# 📋 CONFIG MANAGER — CHANNELS & GROUPS
+# ============================================
+# Config structure:
+# {
+#   "channels": [
+#     {
+#       "id": -100xxxxxxxxxx,
+#       "username": "@mychannel",
+#       "title": "My Channel",
+#       "type": "channel",          # "channel" ya "group"
+#       "invite_link": "https://t.me/...",
+#       "requires_request": false   # Join request wale channels ke liye true
+#     },
+#     ...
+#   ]
+# }
+
+def get_config() -> dict:
+    return load_json(CONFIG_FILE, {"channels": []})
+
+
+def save_config(config: dict) -> None:
+    save_json(CONFIG_FILE, config)
+
+
+def get_channels() -> list:
+    """Saare configured channels/groups ki list lao."""
+    return get_config().get("channels", [])
+
+
+def add_channel_to_config(channel_data: dict) -> None:
+    """Naya channel/group config mein add karo."""
+    config = get_config()
+    config["channels"].append(channel_data)
+    save_config(config)
+
+
+def remove_channel_from_config(channel_id: int) -> bool:
+    """Channel/group config se remove karo. Return True agar mila."""
+    config = get_config()
+    original_len = len(config["channels"])
+    config["channels"] = [
+        ch for ch in config["channels"] if ch["id"] != channel_id
+    ]
+    if len(config["channels"]) < original_len:
+        save_config(config)
+        return True
+    return False
+
+
+# ============================================
+# 👥 USERS MANAGER — VERIFIED USERS
+# ============================================
+# Users structure:
+# {
+#   "123456": {
+#     "verified_at": "2024-01-01T12:00:00",
+#     "name": "John Doe",
+#     "username": "@john"
+#   },
+#   ...
+# }
+
+def get_users() -> dict:
+    return load_json(USERS_FILE, {})
+
+
+def save_users(users: dict) -> None:
+    save_json(USERS_FILE, users)
+
+
+def is_user_verified(user_id: int) -> bool:
+    """Check karo ki user verified hai ya nahi."""
+    users = get_users()
+    return str(user_id) in users
+
+
+def mark_user_verified(user_id: int, name: str, username: str | None) -> None:
+    """User ko verified mark karo."""
+    users = get_users()
+    users[str(user_id)] = {
+        "verified_at": datetime.now().isoformat(),
+        "name": name,
+        "username": username or "N/A",
+    }
+    save_users(users)
+
+
+def get_total_users() -> int:
+    return len(get_users())
+
+
+# ============================================
+# 🔐 OWNER ONLY DECORATOR
+# ============================================
+
+def owner_only(func):
+    """Sirf OWNER_ID wala banda yeh command use kar sakta hai."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        if user_id != OWNER_ID:
+            await update.message.reply_text(
+                "🚫 *Yeh command sirf bot owner ke liye hai!*\n"
+                "Tumhare paas permission nahi hai.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
+
+# ============================================
+# ✅ MEMBERSHIP CHECK FUNCTION
+# ============================================
+
+async def check_user_membership(bot, user_id: int) -> tuple[bool, list[dict]]:
+    """
+    User ki membership saare channels/groups mein check karo.
+    Returns: (all_joined: bool, missing_channels: list)
+    """
+    channels = get_channels()
+    if not channels:
+        # Koi channel configure nahi — sab verified
+        return True, []
+
+    missing = []
+    for ch in channels:
+        try:
+            member = await bot.get_chat_member(chat_id=ch["id"], user_id=user_id)
+            # Valid statuses: member, administrator, creator, restricted (agar left nahi kiya)
+            if member.status in (
+                ChatMemberStatus.MEMBER,
+                ChatMemberStatus.ADMINISTRATOR,
+                ChatMemberStatus.OWNER,
+            ):
+                continue  # ✅ Joined hai
+            # RESTRICTED user check — left nahi kiya to bhi joined count hoga
+            if member.status == ChatMemberStatus.RESTRICTED:
+                if not member.is_member:
+                    missing.append(ch)
+                continue
+            # LEFT ya BANNED
+            missing.append(ch)
+        except (TelegramError, BadRequest) as e:
+            logger.warning(f"⚠️  Channel {ch['id']} check error: {e}")
+            # Error pe missing mein daalo taaki user join kar sake
+            missing.append(ch)
+
+    return len(missing) == 0, missing
+
+
+# ============================================
+# 📩 SEND JOIN MESSAGE FUNCTION
+# ============================================
+
+async def send_join_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    User ko join karne ka message bhejo with inline buttons.
+    Har channel/group ke liye alag button hoga.
+    """
+    _, missing = await check_user_membership(context.bot, update.effective_user.id)
+
+    if not missing:
+        # Sab join ho gaye — verify kar do
+        user = update.effective_user
+        mark_user_verified(user.id, user.full_name, user.username)
+        await update.effective_message.reply_text(
+            "✅ *Badhai ho! Aap ab verified ho!*\n\n"
+            "🎉 Ab aap bot ke saare features use kar sakte ho.\n"
+            "👉 /start dabao features dekhne ke liye.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    # Join buttons banao
+    buttons = []
+    for ch in missing:
+        emoji = "📢" if ch.get("type") == "channel" else "👥"
+        label = f"{emoji} {ch.get('title', 'Join Karo')}"
+        link = ch.get("invite_link") or f"https://t.me/{ch.get('username', '').lstrip('@')}"
+        buttons.append([InlineKeyboardButton(label, url=link)])
+
+    # Verify button
+    buttons.append(
+        [InlineKeyboardButton("🔄 Maine Join Kar Liya — Verify Karo", callback_data="verify_check")]
+    )
+
+    keyboard = InlineKeyboardMarkup(buttons)
+
+    channel_list = "\n".join(
+        f"  {'📢' if ch.get('type') == 'channel' else '👥'} {ch.get('title', 'Unknown')}"
+        for ch in missing
+    )
+
+    await update.effective_message.reply_text(
+        "🔐 *Bot Access ke liye Join Zaroor Hai!*\n\n"
+        f"Abhi bhi yeh join nahi kiya:\n{channel_list}\n\n"
+        "⬆️ Upar diye buttons se join karo, phir\n"
+        "*'Maine Join Kar Liya'* button dabao ✅",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboard,
+    )
+
+
+# ============================================
+# 🌐 VERIFIED MIDDLEWARE — KISI BHI HANDLER KO WRAP KARO
+# ============================================
+
+def verified_middleware(handler_func):
+    """
+    Kisi bhi handler ko verified_middleware se wrap karo.
+    Agar user verified nahi hai to join message dikhata hai,
+    warna original handler chalata hai.
+
+    Usage:
+        app.add_handler(CommandHandler("feature", verified_middleware(feature_handler)))
+        app.add_handler(MessageHandler(filters.TEXT, verified_middleware(text_handler)))
+        app.add_handler(CallbackQueryHandler(verified_middleware(button_handler)))
+    """
+    @wraps(handler_func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+
+        # Owner ko verification bypass
+        if user_id == OWNER_ID:
+            return await handler_func(update, context)
+
+        # User already verified?
+        if is_user_verified(user_id):
+            return await handler_func(update, context)
+
+        # Verify nahi — membership dobara check karo (real-time)
+        all_joined, _ = await check_user_membership(context.bot, user_id)
+        if all_joined:
+            user = update.effective_user
+            mark_user_verified(user.id, user.full_name, user.username)
+            return await handler_func(update, context)
+
+        # Join message dikhao
+        await send_join_message(update, context)
+    return wrapper
+
+
+# ============================================
+# 🌐 GLOBAL VERIFICATION — ALTERNATIVE APPROACH
+# ============================================
+# Yeh approach har incoming update ko intercept karta hai.
+# Group -1 mein add karne se yeh SAARE handlers se PEHLE chalta hai.
+
+from telegram.ext import ApplicationHandlerStop
+
+async def global_verification_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Har update se pehle yahan check hoga.
+    Agar user verified nahi hai → join message → aage koi handler nahi chalega.
+
+    Register karo:
+        app.add_handler(TypeHandler(Update, global_verification_check), group=-1)
+
+    NOTE: Iska matlab hai ki register_bot_handlers() mein
+          verified_middleware() wrap karne ki zaroorat NAHI — yeh globally kaam karega.
+          Dono approaches ek saath use NAHI karo. Ek chuno.
+    """
+    # Update mein effective_user nahi? Skip
+    if not update.effective_user:
+        return
+
+    user_id = update.effective_user.id
+
+    # Owner ko bypass
+    if user_id == OWNER_ID:
+        return
+
+    # Already verified?
+    if is_user_verified(user_id):
+        return
+
+    # Real-time membership check
+    all_joined, _ = await check_user_membership(context.bot, user_id)
+    if all_joined:
+        user = update.effective_user
+        mark_user_verified(user.id, user.full_name, user.username)
+        return  # Verified ho gaya — aage handlers chalenge
+
+    # Nahi joined — message do aur rok do
+    await send_join_message(update, context)
+    raise ApplicationHandlerStop()  # ✋ Koi aur handler nahi chalega
+
+
+# ============================================
+# 🔧 YAHAN APNE BOT KE HANDLERS ADD KARO
+# ============================================
+
+def register_bot_handlers(app: Application) -> None:
+    """
+    ╔═══════════════════════════════════════════════════════╗
+    ║  Apne original bot.py ke handlers yahan register karo ║
+    ╚═══════════════════════════════════════════════════════╝
+
+    METHOD A — verified_middleware se wrap karke (Handler-Level):
+    ┌─────────────────────────────────────────────────────────┐
+    │  from bot import feature1_handler, text_handler, etc.   │
+    │                                                         │
+    │  app.add_handler(CommandHandler(                        │
+    │      "feature1", verified_middleware(feature1_handler)  │
+    │  ))                                                     │
+    │  app.add_handler(MessageHandler(                        │
+    │      filters.TEXT & ~filters.COMMAND,                   │
+    │      verified_middleware(text_handler)                  │
+    │  ))                                                     │
+    │  app.add_handler(CallbackQueryHandler(                  │
+    │      verified_middleware(button_handler)                │
+    │  ))                                                     │
+    └─────────────────────────────────────────────────────────┘
+
+    METHOD B — Global Middleware (Agar global_verification_check use kar rahe ho):
+    ┌─────────────────────────────────────────────────────────┐
+    │  from bot import feature1_handler, text_handler, etc.   │
+    │                                                         │
+    │  # Wrap karne ki zaroorat NAHI — directly add karo      │
+    │  app.add_handler(CommandHandler("feature1", feature1_handler))  │
+    │  app.add_handler(MessageHandler(                        │
+    │      filters.TEXT & ~filters.COMMAND, text_handler      │
+    │  ))                                                     │
+    └─────────────────────────────────────────────────────────┘
+
+    METHOD C — Agar bot.py ek function deta hai saare handlers ka:
+    ┌─────────────────────────────────────────────────────────┐
+    │  from bot import get_all_handlers                       │
+    │  for handler in get_all_handlers():                     │
+    │      app.add_handler(verified_middleware_handler(handler))  │
+    └─────────────────────────────────────────────────────────┘
+    """
+
+    # ⬇️ YAHAN APNE HANDLERS UNCOMMENT KARKE ADD KARO ⬇️
+    # from bot import feature1_handler, feature2_handler, text_handler, button_handler
+
+    # app.add_handler(CommandHandler("feature1", verified_middleware(feature1_handler)))
+    # app.add_handler(CommandHandler("feature2", verified_middleware(feature2_handler)))
+    # app.add_handler(MessageHandler(
+    #     filters.TEXT & ~filters.COMMAND,
+    #     verified_middleware(text_handler)
+    # ))
+    # app.add_handler(CallbackQueryHandler(verified_middleware(button_handler), pattern="^your_pattern"))
+
+    pass  # ← Isko hatao jab apne handlers add kar lo
+
+
+# ============================================
+# 🚀 /start COMMAND — VERIFICATION FLOW + ORIGINAL BOT START
+# ============================================
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /start command — verification check karo.
+    Agar verified hai → original bot ka start chalao.
+    Agar nahi → join message dikhao.
+    """
+    user = update.effective_user
+    user_id = user.id
+
+    # Owner check
+    if user_id == OWNER_ID:
+        await update.message.reply_text(
+            f"👑 *Welcome Boss!* {user.first_name}\n\n"
+            "🛠 *Owner Commands:*\n"
+            "  /add — Channel/Group add karo\n"
+            "  /remove — Channel/Group remove karo\n"
+            "  /channels — Configured list dekho\n"
+            "  /stats — Bot statistics\n"
+            "  /broadcast — Sabko message bhejo",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    # Already verified?
+    if is_user_verified(user_id):
+        await update.message.reply_text(
+            f"✅ *Aap already verified ho, {user.first_name}!*\n\n"
+            "🎉 Bot ke saare features tumhare liye available hain.\n"
+            "Koi command try karo!",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        # --- Agar original bot ka start handler import kiya hai to uncomment karo ---
+        # await original_start_handler(update, context)
+        return
+
+    # Real-time membership check
+    all_joined, missing = await check_user_membership(context.bot, user_id)
+    if all_joined:
+        mark_user_verified(user_id, user.full_name, user.username)
+        await update.message.reply_text(
+            f"🎊 *Bahut badhiya, {user.first_name}!*\n\n"
+            "✅ *Verification complete ho gayi!*\n"
+            "Ab aap bot ke saare features use kar sakte ho. 🚀",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        # --- Original bot ka start invoke karo (optional) ---
+        # await original_start_handler(update, context)
+        return
+
+    # Nahi joined — join message bhejo
+    await send_join_message(update, context)
+
+
+# ============================================
+# 🔄 VERIFY CALLBACK — BUTTON DABANE PAR
+# ============================================
+
+async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    'Maine Join Kar Liya — Verify Karo' button callback.
+    Real-time membership re-check karta hai.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    user_id = user.id
+
+    all_joined, missing = await check_user_membership(context.bot, user_id)
+
+    if all_joined:
+        mark_user_verified(user_id, user.full_name, user.username)
+        await query.edit_message_text(
+            f"🎊 *Verification Successful!*\n\n"
+            f"✅ Welcome, *{user.first_name}*!\n"
+            "Ab aap bot ke saare features use kar sakte ho. 🚀\n\n"
+            "👉 /start dabao ya koi feature command try karo.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        # Abhi bhi kuch missing
+        channel_list = "\n".join(
+            f"  {'📢' if ch.get('type') == 'channel' else '👥'} {ch.get('title', 'Unknown')}"
+            for ch in missing
+        )
+        buttons = []
+        for ch in missing:
+            emoji = "📢" if ch.get("type") == "channel" else "👥"
+            label = f"{emoji} {ch.get('title', 'Join Karo')}"
+            link = ch.get("invite_link") or f"https://t.me/{ch.get('username', '').lstrip('@')}"
+            buttons.append([InlineKeyboardButton(label, url=link)])
+        buttons.append(
+            [InlineKeyboardButton("🔄 Maine Join Kar Liya — Dobara Check Karo", callback_data="verify_check")]
+        )
+        await query.edit_message_text(
+            "❌ *Abhi bhi join pending hai:*\n\n"
+            f"{channel_list}\n\n"
+            "⬆️ Saare join karo phir button dabao.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+
+# ============================================
+# 👑 OWNER COMMANDS — /add (ConversationHandler)
+# ============================================
+
+# Conversation states
+ASK_CHANNEL_ID, ASK_INVITE_LINK, ASK_REQUIRES_REQUEST = range(3)
+
+
+@owner_only
+async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 1: Channel/Group add karna shuru karo."""
+    await update.message.reply_text(
+        "➕ *Naya Channel/Group Add Karo*\n\n"
+        "📋 *Step 1/3:* Channel/Group ka ID ya @username bhejo.\n\n"
+        "💡 *ID kaise milega?*\n"
+        "  • Channel/Group mein @userinfobot add karo\n"
+        "  • Woh tumhe ID dega (e.g., -100xxxxxxxxxx)\n\n"
+        "Ya seedha @username bhejo (e.g., @mychannel)\n\n"
+        "❌ Cancel karne ke liye /cancel bhejo.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    return ASK_CHANNEL_ID
+
+
+async def received_channel_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 2: Channel ID receive karo aur info fetch karo."""
+    text = update.message.text.strip()
+
+    # Pehle try karo channel info fetch karna
+    try:
+        chat = await context.bot.get_chat(chat_id=text)
+        context.user_data["new_channel"] = {
+            "id": chat.id,
+            "username": f"@{chat.username}" if chat.username else None,
+            "title": chat.title or chat.first_name or "Unknown",
+            "type": "channel" if chat.type == "channel" else "group",
+        }
+        emoji = "📢" if chat.type == "channel" else "👥"
+        await update.message.reply_text(
+            f"{emoji} *Channel/Group Mila:*\n\n"
+            f"📛 Title: *{chat.title}*\n"
+            f"🆔 ID: `{chat.id}`\n"
+            f"🔗 Username: @{chat.username or 'N/A'}\n"
+            f"📂 Type: {'Channel' if chat.type == 'channel' else 'Group'}\n\n"
+            "📋 *Step 2/3:* Ab invite link bhejo (ya /skip agar public hai).",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return ASK_INVITE_LINK
+    except (TelegramError, BadRequest) as e:
+        await update.message.reply_text(
+            f"⚠️ Chat nahi mila: `{e}`\n\n"
+            "Dobara try karo:\n"
+            "  • Bot ko channel/group mein admin banao pehle\n"
+            "  • Phir sahi ID ya @username bhejo\n"
+            "  • Ya /cancel karo",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return ASK_CHANNEL_ID
+
+
+async def received_invite_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Step 3: Invite link receive karo."""
+    text = update.message.text.strip()
+
+    if text.lower() != "/skip":
+        context.user_data["new_channel"]["invite_link"] = text
+    else:
+        # Public username se link banao
+        username = context.user_data["new_channel"].get("username")
+        context.user_data["new_channel"]["invite_link"] = (
+            f"https://t.me/{username.lstrip('@')}" if username else None
+        )
+
+    await update.message.reply_text(
+        "📋 *Step 3/3:* Kya yeh channel *Join Request* wala hai?\n\n"
+        "• Agar users ko join request submit karni hoti hai → /yes bhejo\n"
+        "• Agar directly join ho jaate hain → /no bhejo",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    return ASK_REQUIRES_REQUEST
+
+
+async def received_requires_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Final step: Config mein save karo."""
+    text = update.message.text.strip().lower()
+    requires_request = text in ("/yes", "yes", "haan", "ha")
+    channel_data = context.user_data.get("new_channel", {})
+    channel_data["requires_request"] = requires_request
+
+    add_channel_to_config(channel_data)
+    emoji = "📢" if channel_data.get("type") == "channel" else "👥"
+    link = channel_data.get("invite_link") or "N/A"
+
+    await update.message.reply_text(
+        f"✅ *Successfully Added!*\n\n"
+        f"{emoji} *{channel_data.get('title')}*\n"
+        f"🆔 ID: `{channel_data.get('id')}`\n"
+        f"🔗 Link: {link}\n"
+        f"📩 Join Request: {'Haan ✅' if requires_request else 'Nahi ❌'}\n\n"
+        "Ab naye users ko yeh join karna padega! 🎉",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Conversation cancel karo."""
+    context.user_data.clear()
+    await update.message.reply_text(
+        "❌ *Cancel kar diya.* Koi changes save nahi hue.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    return ConversationHandler.END
+
+
+# ============================================
+# 👑 /remove COMMAND
+# ============================================
+
+@owner_only
+async def remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/remove — Channel/group remove karo config se."""
+    channels = get_channels()
+
+    if not channels:
+        await update.message.reply_text(
+            "📭 *Koi channel/group configured nahi hai abhi.*\n"
+            "Pehle /add se kuch add karo.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    buttons = []
+    for ch in channels:
+        emoji = "📢" if ch.get("type") == "channel" else "👥"
+        label = f"❌ {emoji} {ch.get('title', 'Unknown')}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"remove_{ch['id']}")])
+
+    await update.message.reply_text(
+        "🗑 *Kaun sa channel/group remove karna hai?*\n\n"
+        "Neeche se choose karo:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove button callback."""
+    query = update.callback_query
+    await query.answer()
+
+    # Owner check
+    if query.from_user.id != OWNER_ID:
+        await query.answer("🚫 Sirf owner remove kar sakta hai!", show_alert=True)
+        return
+
+    data = query.data  # "remove_-100xxxxxxxxxx"
+    try:
+        channel_id = int(data.split("_", 1)[1])
+    except (ValueError, IndexError):
+        await query.edit_message_text("⚠️ Invalid callback data.")
+        return
+
+    if remove_channel_from_config(channel_id):
+        await query.edit_message_text(
+            f"✅ *Channel/Group remove ho gaya!*\n"
+            f"ID: `{channel_id}`\n\n"
+            "Ab yeh channel join requirement mein nahi rahega.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        await query.edit_message_text(
+            "⚠️ Channel/Group nahi mila config mein.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+
+# ============================================
+# 👑 /channels COMMAND
+# ============================================
+
+@owner_only
+async def channels_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/channels — Configured channels/groups ki list dikhao."""
+    channels = get_channels()
+
+    if not channels:
+        await update.message.reply_text(
+            "📭 *Koi channel/group configured nahi hai.*\n\n"
+            "➕ /add se add karo.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    text = f"📋 *Configured Channels/Groups ({len(channels)}):*\n\n"
+    for i, ch in enumerate(channels, 1):
+        emoji = "📢" if ch.get("type") == "channel" else "👥"
+        link = ch.get("invite_link") or ch.get("username") or "N/A"
+        req = "✅ Join Request" if ch.get("requires_request") else "➡️ Direct Join"
+        text += (
+            f"{i}. {emoji} *{ch.get('title', 'Unknown')}*\n"
+            f"   🆔 `{ch.get('id')}`\n"
+            f"   🔗 {link}\n"
+            f"   📩 {req}\n\n"
+        )
+
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+# ============================================
+# 👑 /stats COMMAND
+# ============================================
+
+@owner_only
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/stats — Bot ke statistics dikhao."""
+    total_users  = get_total_users()
+    total_ch     = len(get_channels())
+    channels     = get_channels()
+    channel_cnt  = sum(1 for c in channels if c.get("type") == "channel")
+    group_cnt    = total_ch - channel_cnt
+
+    await update.message.reply_text(
+        "📊 *Bot Statistics*\n\n"
+        f"👥 Total Verified Users: *{total_users}*\n"
+        f"📢 Channels Configured: *{channel_cnt}*\n"
+        f"👥 Groups Configured:   *{group_cnt}*\n"
+        f"🔐 Total Required Joins: *{total_ch}*\n\n"
+        f"🕐 Report Time: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+# ============================================
+# 👑 /broadcast COMMAND
+# ============================================
+
+@owner_only
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/broadcast <message> — Saare verified users ko message bhejo."""
+    if not context.args:
+        await update.message.reply_text(
+            "📢 *Broadcast Usage:*\n\n"
+            "`/broadcast Yahan apna message likho`\n\n"
+            "⚠️ Yeh message saare verified users ko jayega!",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    message_text = " ".join(context.args)
+    users = get_users()
+
+    if not users:
+        await update.message.reply_text(
+            "📭 *Koi verified user nahi hai abhi.*",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    status_msg = await update.message.reply_text(
+        f"📤 *Broadcasting {len(users)} users ko...*",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+    sent = 0
+    failed = 0
+    broadcast_text = (
+        "📢 *Bot Se Message:*\n\n"
+        f"{message_text}\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "_Yeh ek broadcast message tha._"
+    )
+
+    for uid_str in users.keys():
+        try:
+            await context.bot.send_message(
+                chat_id=int(uid_str),
+                text=broadcast_text,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            sent += 1
+            await asyncio.sleep(0.05)  # Rate limit se bachne ke liye
+        except TelegramError as e:
+            logger.warning(f"Broadcast failed for {uid_str}: {e}")
+            failed += 1
+
+    await status_msg.edit_text(
+        f"✅ *Broadcast Complete!*\n\n"
+        f"📨 Sent: *{sent}*\n"
+        f"❌ Failed: *{failed}*\n"
+        f"👥 Total: *{len(users)}*",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+# ============================================
+# 🔧 ERROR HANDLER
+# ============================================
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Saari telegram errors yahan handle hongi."""
+    logger.error(f"⚠️ Update {update} se yeh error aaya: {context.error}")
+
+    # Agar update aur message exist kare to user ko inform karo
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ *Kuch technical gadbad ho gayi!*\n"
+                "Thodi der baad dobara try karo.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        except TelegramError:
+            pass
+
+
+# ============================================
+# 🏗️ APPLICATION BUILD KARO
+# ============================================
+
+def build_application() -> Application:
+    """
+    Application build karo aur saare handlers register karo.
+    Handlers ka ORDER important hai!
+    """
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # ══════════════════════════════════════════
+    # 🌐 APPROACH A: GLOBAL MIDDLEWARE (TypeHandler)
+    # Uncomment karo agar GLOBAL verification chahiye
+    # (Iska matlab hai register_bot_handlers mein
+    #  verified_middleware() wrap karne ki zaroorat nahi)
+    # ══════════════════════════════════════════
+    # app.add_handler(TypeHandler(Update, global_verification_check), group=-1)
+
+    # ══════════════════════════════════════════
+    # 🔐 VERIFICATION HANDLERS
+    # ══════════════════════════════════════════
+
+    # /start — Verification + original bot start
+    app.add_handler(CommandHandler("start", start_command))
+
+    # Verify button callback
+    app.add_handler(CallbackQueryHandler(verify_callback, pattern="^verify_check$"))
+
+    # ══════════════════════════════════════════
+    # 👑 OWNER ADMIN COMMANDS
+    # ══════════════════════════════════════════
+
+    # /add — ConversationHandler
+    add_conv = ConversationHandler(
+        entry_points=[CommandHandler("add", add_command)],
+        states={
+            ASK_CHANNEL_ID: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_channel_id)
+            ],
+            ASK_INVITE_LINK: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_invite_link),
+                CommandHandler("skip", received_invite_link),
+            ],
+            ASK_REQUIRES_REQUEST: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_requires_request),
+                CommandHandler("yes", received_requires_request),
+                CommandHandler("no", received_requires_request),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_conversation)],
+        allow_reentry=True,
+    )
+    app.add_handler(add_conv)
+
+    # /remove
+    app.add_handler(CommandHandler("remove", remove_command))
+    app.add_handler(CallbackQueryHandler(remove_callback, pattern=r"^remove_-?\d+$"))
+
+    # /channels
+    app.add_handler(CommandHandler("channels", channels_command))
+
+    # /stats
+    app.add_handler(CommandHandler("stats", stats_command))
+
+    # /broadcast
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+
+    # ══════════════════════════════════════════
+    # 🤖 ORIGINAL BOT HANDLERS (bot.py se)
+    # ══════════════════════════════════════════
+    register_bot_handlers(app)
+
+    # ══════════════════════════════════════════
+    # ⚠️ ERROR HANDLER
+    # ══════════════════════════════════════════
+    app.add_error_handler(error_handler)
+
+    return app
+
+
+# ============================================
+# 🚀 MAIN — BOT CHALAO
+# ============================================
+
+def main() -> None:
+    """Bot start karo."""
+    # Config validate karo
+    if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        print("❌ ERROR: BOT_TOKEN set nahi kiya! main.py mein apna token daalo.")
+        return
+    if OWNER_ID == 123456789:
+        print("⚠️  WARNING: OWNER_ID abhi bhi default hai! Apna Telegram ID daalo.")
+
+    logger.info("🚀 Verification Wrapper Bot start ho raha hai...")
+    app = build_application()
+
+    logger.info("✅ Bot chalu ho gaya! Polling shuru...")
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
+
+
+if __name__ == "__main__":
+    main()
