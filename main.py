@@ -1,46 +1,3 @@
-#!/usr/bin/env python3
-# =============================================================================
-#  Telegram Verification Wrapper v5.0  —  main.py
-#  THE ABSOLUTE FINAL VERSION  —  ProxyApp approach.
-#
-#  ROOT CAUSE FIXED (vs v4.0 / FakeApp):
-#    • FakeApp captured handlers on a FAKE object, then tried to re-add them
-#      to the real Application.  Handler metadata (Application context,
-#      internal state) was lost in transit.
-#    • async def main() in bot.py returned a coroutine that was discarded
-#      (never awaited) so handlers were NEVER captured at all.
-#    • Handler wrapping (.callback mutation) broke internal dispatch state.
-#
-#  THE FIX — ProxyApp:
-#    • ProxyApp is NOT a fake.  Every add_handler() call goes DIRECTLY to
-#      the REAL Application in group 1.  Handlers are registered once, on the
-#      correct app, with correct context.  Nothing is re-added or modified.
-#    • async main() in bot.py: we spawn a temporary event loop to run it, OR
-#      try nest_asyncio, OR fall back to a thread.  Any path works.
-#    • The /start command is intercepted at the ProxyApp level — its callback
-#      is saved; the handler itself is NOT added to group 1 (we own /start).
-#    • After verify callback, we send "Press /start" instead of calling
-#      _original_bot_start directly (callback context has no update.message).
-#
-#  ARCHITECTURE:
-#    Group -1 : TypeHandler → global_verification_check   (runs FIRST)
-#    Group  0 : System handlers (start, admin, cancel, verify, callbacks…)
-#    Group  1 : bot.py handlers — added DIRECTLY via ProxyApp.add_handler()
-#
-#  SETUP:
-#    1. pip install python-telegram-bot
-#    2. Set BOT_TOKEN and OWNER_ID below.
-#    3. Place bot.py in the same folder (optional — works without it).
-#    4. Run:  python main.py
-#    5. Use /admin (owner only) to manage required channels / groups.
-#
-#  FILES:
-#    main.py      ← RUN THIS
-#    bot.py       ← Your original bot (optional, do NOT run directly)
-#    config.json  ← Auto-created (verification chat list)
-#    users.json   ← Auto-created (user records)
-# =============================================================================
-
 import asyncio
 import importlib.util
 import inspect
@@ -79,8 +36,8 @@ from telegram.ext import (
 #  CONFIGURATION — EDIT THESE
 # =============================================================================
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-OWNER_ID  = 123456789  # Your Telegram user ID (integer)
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"
+OWNER_ID = 8395315423  # Your Telegram user ID (integer)
 
 CONFIG_FILE = "config.json"
 USERS_FILE  = "users.json"
