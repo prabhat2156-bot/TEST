@@ -946,6 +946,13 @@ def build_application() -> Application:
     # 🤖 ORIGINAL BOT HANDLERS (bot.py se)
     # ══════════════════════════════════════════
     register_bot_handlers(app)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("cancel", cancel_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    
 
     # ══════════════════════════════════════════
     # ⚠️ ERROR HANDLER
