@@ -1,38 +1,3 @@
-#!/usr/bin/env python3
-# =============================================================================
-#  Telegram Verification Wrapper v4.0  —  main.py
-#  DEFINITIVE FINAL VERSION  —  all v3.0 issues resolved.
-#
-#  FIXES APPLIED vs v3.0:
-#    FIX 1  — Owner /start: shows bot.py features FIRST, then admin panel.
-#    FIX 2  — After verify: directly calls original bot start (no re-send).
-#    FIX 3  — Join request tracking in memory (pending_join_requests set).
-#    FIX 4  — Add-chat flow is multi-step: fetch info → ask join_request flag.
-#    FIX 5  — Config is a single "chats" list with "type" + "join_request" fields.
-#    FIX 6  — drop_pending_updates=True on run_polling.
-#    FIX 7  — ChatMemberHandler also discards pending_join_requests on leave/kick.
-#    FIX 8  — Beautiful HTML admin panel shown on owner /start.
-#
-#  ARCHITECTURE:
-#    Group -1 : TypeHandler  →  global_verification_check   (runs FIRST)
-#    Group  0 : System handlers (start, admin, cancel, verify, callbacks, etc.)
-#    Group  1 : Bot.py handlers (captured UNMODIFIED via FakeBuilder/FakeApp)
-#
-# SETUP GUIDE
-# -----------
-# 1. pip install python-telegram-bot
-# 2. Set BOT_TOKEN and OWNER_ID below.
-# 3. Place your bot.py in the same folder (optional — works without it).
-# 4. Run: python main.py
-# 5. Use /admin (owner only) to add channels / groups.
-#
-# FILE STRUCTURE:
-#   main.py      ← RUN THIS FILE
-#   bot.py       ← Your original bot (optional, do NOT run directly)
-#   config.json  ← Auto-created (stores chat verification list)
-#   users.json   ← Auto-created (stores user records)
-# =============================================================================
-
 import asyncio
 import importlib.util
 import inspect
@@ -70,8 +35,8 @@ from telegram.ext import (
 #  CONFIGURATION — EDIT THESE
 # =============================================================================
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-OWNER_ID  = 123456789  # Your Telegram user ID (integer)
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"
+OWNER_ID = 8395315423    # Your Telegram user ID (integer)
 
 CONFIG_FILE = "config.json"
 USERS_FILE  = "users.json"
