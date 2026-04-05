@@ -15,7 +15,7 @@ from telegram.ext import (
 )
 
 # Bot token
-BOT_TOKEN = "7727685861:AAE3CMfUysoE02PKtqKbWBrg0MXTnBfnnMU"
+BOT_TOKEN = "7727685861:AAFR5NtU4dH-8T8gGqBOMou59vlvPGs7h9Q"
 
 # ================= SETTINGS =================
 
