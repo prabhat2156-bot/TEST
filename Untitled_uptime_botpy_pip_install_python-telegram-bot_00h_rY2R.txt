@@ -1,0 +1,1033 @@
+# uptime_bot.py
+# pip install python-telegram-bot aiohttp
+
+import asyncio
+import json
+import logging
+import os
+import random
+import time
+from datetime import datetime
+
+import aiohttp
+from telegram import (
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
+from telegram.constants import ParseMode
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+
+# ─────────────────────────────────────────────
+#  CONFIG — Edit these before running
+# ─────────────────────────────────────────────
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+OWNER_ID  = 123456789          # Your Telegram user ID (integer)
+
+# ─────────────────────────────────────────────
+#  FILE PATHS
+# ─────────────────────────────────────────────
+SITES_FILE   = "sites.json"
+CONFIG_FILE  = "config.json"
+LOG_FILE     = "ping_log.txt"
+
+# ─────────────────────────────────────────────
+#  LOGGING
+# ─────────────────────────────────────────────
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────
+#  DEFAULT CONFIG
+# ─────────────────────────────────────────────
+DEFAULT_CONFIG = {
+    "group_id":       None,
+    "alert_down":     True,   # Owner DM only
+    "alert_success":  True,   # Owner DM only
+    "min_interval":   1,
+    "max_interval":   5,
+}
+
+# ─────────────────────────────────────────────
+#  GLOBAL STATE
+# ─────────────────────────────────────────────
+monitoring_task = None   # asyncio.Task
+cycle_count     = 0      # for summary every 5 cycles
+
+
+# ═════════════════════════════════════════════
+#  DATA HELPERS
+# ═════════════════════════════════════════════
+
+def load_sites() -> list:
+    if os.path.exists(SITES_FILE):
+        try:
+            with open(SITES_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
+def save_sites(sites: list) -> None:
+    with open(SITES_FILE, "w") as f:
+        json.dump(sites, f, indent=2)
+
+
+def load_config() -> dict:
+    cfg = dict(DEFAULT_CONFIG)
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                cfg.update(json.load(f))
+        except Exception:
+            pass
+    return cfg
+
+
+def save_config(cfg: dict) -> None:
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def append_log(entry: str) -> None:
+    ts = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    with open(LOG_FILE, "a") as f:
+        f.write(f"[{ts}] {entry}\n")
+
+
+def read_logs(n: int = 25) -> list:
+    if not os.path.exists(LOG_FILE):
+        return []
+    with open(LOG_FILE, "r") as f:
+        lines = f.readlines()
+    return [l.rstrip() for l in lines[-n:]]
+
+
+def clear_logs() -> None:
+    if os.path.exists(LOG_FILE):
+        open(LOG_FILE, "w").close()
+
+
+def normalize_url(url: str) -> str:
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
+def now_str() -> str:
+    return datetime.now().strftime("%d-%m-%Y %I:%M:%S %p")
+
+
+# ═════════════════════════════════════════════
+#  OWNER GUARD
+# ═════════════════════════════════════════════
+
+def owner_only(func):
+    """Decorator — silently ignores non-owner calls."""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user is None or user.id != OWNER_ID:
+            if update.message:
+                await update.message.reply_text("⛔ Access denied.")
+            return
+        return await func(update, context)
+    return wrapper
+
+
+def owner_only_callback(func):
+    """Decorator for callback query handlers."""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        if query is None or query.from_user.id != OWNER_ID:
+            await query.answer("⛔ Access denied.", show_alert=True)
+            return
+        return await func(update, context)
+    return wrapper
+
+
+# ═════════════════════════════════════════════
+#  KEYBOARDS
+# ═════════════════════════════════════════════
+
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    kb = [
+        [
+            InlineKeyboardButton("➕ Add Site",     callback_data="menu_add"),
+            InlineKeyboardButton("➕ Add Multiple", callback_data="menu_addmulti"),
+        ],
+        [
+            InlineKeyboardButton("📋 List Sites",   callback_data="menu_list"),
+            InlineKeyboardButton("🗑 Remove Site",  callback_data="menu_remove"),
+        ],
+        [
+            InlineKeyboardButton("▶️ Start Monitor", callback_data="menu_monitor"),
+            InlineKeyboardButton("⏹ Stop Monitor",  callback_data="menu_stop"),
+        ],
+        [
+            InlineKeyboardButton("🔍 Ping Now",  callback_data="menu_ping"),
+            InlineKeyboardButton("📊 Status",    callback_data="menu_status"),
+        ],
+        [
+            InlineKeyboardButton("📜 Logs",      callback_data="menu_logs"),
+            InlineKeyboardButton("🗑 Clear Logs", callback_data="menu_clearlogs"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ Settings",  callback_data="menu_settings"),
+            InlineKeyboardButton("❓ Help",       callback_data="menu_help"),
+        ],
+    ]
+    return InlineKeyboardMarkup(kb)
+
+
+def back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]])
+
+
+def remove_keyboard(sites: list) -> InlineKeyboardMarkup:
+    rows = []
+    for i, site in enumerate(sites):
+        rows.append([
+            InlineKeyboardButton(
+                f"🗑 [{i+1}] {site['name']}",
+                callback_data=f"remove_{i}",
+            )
+        ])
+    rows.append([InlineKeyboardButton("🗑 Remove ALL", callback_data="remove_all")])
+    rows.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def settings_keyboard(cfg: dict) -> InlineKeyboardMarkup:
+    down_label    = "🔴 DM Down Alerts: ON ✅"  if cfg["alert_down"]    else "🔴 DM Down Alerts: OFF ❌"
+    success_label = "🟢 DM Success Alerts: ON ✅" if cfg["alert_success"] else "🟢 DM Success Alerts: OFF ❌"
+    group_info    = str(cfg["group_id"]) if cfg["group_id"] else "Not set"
+    kb = [
+        [InlineKeyboardButton("📢 Group: Always receives ALL pings ✅", callback_data="noop")],
+        [InlineKeyboardButton(down_label,    callback_data="toggle_down")],
+        [InlineKeyboardButton(success_label, callback_data="toggle_success")],
+        [InlineKeyboardButton(
+            f"⏱ Interval: {cfg['min_interval']}–{cfg['max_interval']} min  (use /interval)",
+            callback_data="noop",
+        )],
+        [InlineKeyboardButton(
+            f"📢 Alert Group: {group_info}  (use /setgroup)",
+            callback_data="noop",
+        )],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")],
+    ]
+    return InlineKeyboardMarkup(kb)
+
+
+# ═════════════════════════════════════════════
+#  PING LOGIC
+# ═════════════════════════════════════════════
+
+async def ping_site(site: dict) -> dict:
+    """Ping a single site; returns result dict."""
+    url = site["url"]
+    start = time.monotonic()
+    result = {
+        "name":     site["name"],
+        "url":      url,
+        "status":   None,
+        "response": 0,
+        "ok":       False,
+        "error":    None,
+    }
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, allow_redirects=True) as resp:
+                elapsed = int((time.monotonic() - start) * 1000)
+                result["status"]   = resp.status
+                result["response"] = elapsed
+                result["ok"]       = resp.status < 400
+    except aiohttp.ClientConnectorError as e:
+        result["status"] = "CONNECTION ERROR"
+        result["error"]  = str(e)
+    except asyncio.TimeoutError:
+        result["status"] = "TIMEOUT"
+        result["error"]  = "Request timed out after 30s"
+    except Exception as e:
+        result["status"] = "ERROR"
+        result["error"]  = str(e)
+    return result
+
+
+# ─────────────────────────────────────────────
+#  MESSAGE FORMATTERS
+# ─────────────────────────────────────────────
+
+def format_down_alert(r: dict) -> str:
+    """Full DOWN alert — sent to group AND owner DM."""
+    return (
+        "🔴🔴 WEBSITE DOWN! 🔴🔴\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"🌐 Site: {r['name']}\n"
+        f"🔗 URL: {r['url']}\n"
+        f"📊 Status: {r['status']}\n"
+        f"⏱ Response: {r['response']}ms\n"
+        f"🕐 Time: {now_str()}\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "⚠️ Check immediately!"
+    )
+
+
+def format_success_alert(r: dict) -> str:
+    """Full UP/ONLINE alert — sent to group AND owner DM."""
+    return (
+        "🟢 WEBSITE ONLINE ✅\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"🌐 Site: {r['name']}\n"
+        f"🔗 URL: {r['url']}\n"
+        f"📊 Status: {r['status']}\n"
+        f"⏱ Response: {r['response']}ms\n"
+        f"🕐 Time: {now_str()}\n"
+        "━━━━━━━━━━━━━━━━"
+    )
+
+
+def format_ping_result(r: dict) -> str:
+    """Individual ping-check result — always sent to group for every ping."""
+    status_icon = "✅" if r["ok"] else "❌"
+    status_val  = f"{r['status']} {status_icon}"
+    return (
+        "🔄 PING CHECK\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"🌐 Site: {r['name']}\n"
+        f"🔗 URL: {r['url']}\n"
+        f"📊 Status: {status_val}\n"
+        f"⏱ Response: {r['response']}ms\n"
+        f"🕐 Time: {now_str()}\n"
+        "━━━━━━━━━━━━━━━━"
+    )
+
+
+# ─────────────────────────────────────────────
+#  SEND HELPERS
+# ─────────────────────────────────────────────
+
+async def send_to_group(bot: Bot, cfg: dict, text: str) -> None:
+    """Send a message to the configured group only."""
+    if cfg["group_id"]:
+        try:
+            await bot.send_message(chat_id=cfg["group_id"], text=text)
+        except Exception as e:
+            logger.warning(f"Group message failed: {e}")
+
+
+async def send_to_owner(bot: Bot, text: str) -> None:
+    """Send a message to the owner DM only."""
+    try:
+        await bot.send_message(chat_id=OWNER_ID, text=text)
+    except Exception as e:
+        logger.warning(f"Owner DM failed: {e}")
+
+
+async def send_alert(bot: Bot, cfg: dict, text: str) -> None:
+    """Send a notification to group AND owner DM (used for start/stop/summary)."""
+    await send_to_group(bot, cfg, text)
+    await send_to_owner(bot, text)
+
+
+# ═════════════════════════════════════════════
+#  CORE PING + ALERT LOOP
+# ═════════════════════════════════════════════
+
+async def ping_all_and_alert(bot: Bot, is_manual: bool = False) -> list:
+    """
+    Ping all sites, send EVERY result to the group immediately.
+    Owner DM receives DOWN alerts only (if alert_down enabled)
+    or SUCCESS alerts only (if alert_success enabled).
+    Returns result list.
+    """
+    global cycle_count
+    sites   = load_sites()
+    cfg     = load_config()
+    results = []
+
+    for site in sites:
+        r = await ping_site(site)
+        results.append(r)
+
+        # Log to file
+        status_str = f"{'OK' if r['ok'] else 'DOWN'} | {r['status']} | {r['response']}ms"
+        append_log(f"{r['name']} ({r['url']}) — {status_str}")
+
+        # ── GROUP: ALWAYS gets every single ping result ──────────────────
+        if r["ok"]:
+            # Use the ONLINE format for a clean up result
+            group_msg = format_success_alert(r)
+        else:
+            # Use the DOWN format for a prominent down result
+            group_msg = format_down_alert(r)
+        await send_to_group(bot, cfg, group_msg)
+
+        # ── OWNER DM: only for alert toggles (backup alerts, no spam) ────
+        if r["ok"]:
+            if cfg["alert_success"]:
+                await send_to_owner(bot, format_success_alert(r))
+        else:
+            if cfg["alert_down"]:
+                await send_to_owner(bot, format_down_alert(r))
+
+    # Increment cycle only for automatic monitoring (not manual pings)
+    if not is_manual:
+        cycle_count += 1
+
+        # Summary every 5 cycles
+        if cycle_count % 5 == 0 and sites:
+            up_count   = sum(1 for r in results if r["ok"])
+            down_count = len(results) - up_count
+            summary = (
+                f"📊 *Summary Report — Cycle #{cycle_count}*\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"🕐 Time: {now_str()}\n"
+                f"🌐 Total Sites: {len(results)}\n"
+                f"🟢 Up: {up_count}  |  🔴 Down: {down_count}\n"
+                "━━━━━━━━━━━━━━━━"
+            )
+            await send_alert(bot, cfg, summary)
+
+    return results
+
+
+# ═════════════════════════════════════════════
+#  MONITORING LOOP
+# ═════════════════════════════════════════════
+
+async def monitoring_loop(bot: Bot) -> None:
+    cfg = load_config()
+    logger.info("Monitoring loop started.")
+    while True:
+        try:
+            await ping_all_and_alert(bot, is_manual=False)
+        except asyncio.CancelledError:
+            logger.info("Monitoring loop cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error in monitoring loop: {e}")
+        cfg = load_config()
+        wait_sec = random.uniform(
+            cfg["min_interval"] * 60,
+            cfg["max_interval"] * 60,
+        )
+        logger.info(f"Next ping in {wait_sec:.0f}s")
+        try:
+            await asyncio.sleep(wait_sec)
+        except asyncio.CancelledError:
+            logger.info("Monitoring loop sleep cancelled.")
+            break
+
+
+# ═════════════════════════════════════════════
+#  COMMAND HANDLERS
+# ═════════════════════════════════════════════
+
+@owner_only
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = (
+        "👋 *Uptime Robot Bot*\n\n"
+        "Monitor your websites 24/7.\n"
+        "Use the menu below to get started."
+    )
+    await update.message.reply_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@owner_only
+async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: `/add <url> <name>`\nExample: `/add https://example.com My Site`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    url  = normalize_url(args[0])
+    name = " ".join(args[1:])
+    sites = load_sites()
+    if any(s["url"].lower() == url.lower() for s in sites):
+        await update.message.reply_text(f"⚠️ `{url}` is already in the list.", parse_mode=ParseMode.MARKDOWN)
+        return
+    sites.append({"url": url, "name": name})
+    save_sites(sites)
+    await update.message.reply_text(
+        f"✅ Added *{name}* (`{url}`)",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=back_keyboard(),
+    )
+
+
+@owner_only
+async def cmd_addmulti(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text or ""
+    lines = text.strip().split("\n")[1:]  # strip the /addmulti line
+    if not lines:
+        await update.message.reply_text(
+            "Send multiple sites like this:\n"
+            "`/addmulti`\n"
+            "`https://site1.com Site One`\n"
+            "`https://site2.com Site Two`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    sites   = load_sites()
+    added   = []
+    skipped = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            skipped.append(f"⚠️ Invalid line: `{line}`")
+            continue
+        url  = normalize_url(parts[0])
+        name = parts[1].strip()
+        if any(s["url"].lower() == url.lower() for s in sites):
+            skipped.append(f"⚠️ Duplicate: `{url}`")
+            continue
+        sites.append({"url": url, "name": name})
+        added.append(f"✅ {name}")
+    save_sites(sites)
+    msg = ""
+    if added:
+        msg += "Added:\n" + "\n".join(added) + "\n"
+    if skipped:
+        msg += "Skipped:\n" + "\n".join(skipped)
+    if not msg:
+        msg = "No valid entries found."
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args  = context.args
+    sites = load_sites()
+    if not sites:
+        await update.message.reply_text("📭 No sites to remove.", reply_markup=back_keyboard())
+        return
+    if not args:
+        await update.message.reply_text(
+            "Select a site to remove:",
+            reply_markup=remove_keyboard(sites),
+        )
+        return
+    # Remove by numbers: /remove 1 3 5
+    indices = []
+    for a in args:
+        try:
+            idx = int(a) - 1
+            if 0 <= idx < len(sites):
+                indices.append(idx)
+        except ValueError:
+            pass
+    if not indices:
+        await update.message.reply_text("⚠️ Invalid site numbers.", reply_markup=back_keyboard())
+        return
+    removed = [sites[i]["name"] for i in sorted(set(indices), reverse=True)]
+    for i in sorted(set(indices), reverse=True):
+        sites.pop(i)
+    save_sites(sites)
+    names = ", ".join(removed)
+    await update.message.reply_text(f"🗑 Removed: {names}", reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_removeall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    save_sites([])
+    await update.message.reply_text("🗑 All sites removed.", reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    sites = load_sites()
+    if not sites:
+        await update.message.reply_text("📭 No sites added yet.", reply_markup=back_keyboard())
+        return
+    lines = [f"*{i+1}.* [{s['name']}]({s['url']})" for i, s in enumerate(sites)]
+    text  = "📋 *Monitored Sites:*\n\n" + "\n".join(lines)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    sites = load_sites()
+    if not sites:
+        await update.message.reply_text("📭 No sites to ping.", reply_markup=back_keyboard())
+        return
+    await update.message.reply_text("🔍 Pinging all sites… results will appear in the group.")
+    # is_manual=True so cycle_count doesn't increment and no summary fires
+    results = await ping_all_and_alert(context.bot, is_manual=True)
+    lines = []
+    for r in results:
+        icon = "🟢" if r["ok"] else "🔴"
+        lines.append(f"{icon} *{r['name']}* — {r['status']} ({r['response']}ms)")
+    text = "📊 *Ping Results:*\n\n" + "\n".join(lines)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global monitoring_task
+    if monitoring_task and not monitoring_task.done():
+        await update.message.reply_text("▶️ Monitoring is already running.", reply_markup=back_keyboard())
+        return
+    cfg = load_config()
+    monitoring_task = asyncio.create_task(monitoring_loop(context.bot))
+    start_msg = (
+        f"▶️ *Monitoring Started!*\n"
+        f"⏱ Interval: {cfg['min_interval']}–{cfg['max_interval']} minutes (random)\n"
+        f"🌐 Sites: {len(load_sites())}"
+    )
+    await update.message.reply_text(start_msg, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+    await send_alert(context.bot, cfg, f"▶️ Uptime Bot monitoring STARTED\n🕐 {now_str()}")
+
+
+@owner_only
+async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global monitoring_task
+    if monitoring_task and not monitoring_task.done():
+        monitoring_task.cancel()
+        monitoring_task = None
+        cfg = load_config()
+        await update.message.reply_text("⏹ Monitoring stopped.", reply_markup=back_keyboard())
+        await send_alert(context.bot, cfg, f"⏹ Uptime Bot monitoring STOPPED\n🕐 {now_str()}")
+    else:
+        await update.message.reply_text("⏹ Monitoring is not running.", reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global monitoring_task, cycle_count
+    cfg     = load_config()
+    running = monitoring_task is not None and not monitoring_task.done()
+    sites   = load_sites()
+    status  = "▶️ Running" if running else "⏹ Stopped"
+    group   = str(cfg["group_id"]) if cfg["group_id"] else "Not set"
+    text = (
+        f"📊 *Bot Status*\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"🔄 Monitor: {status}\n"
+        f"🌐 Sites: {len(sites)}\n"
+        f"⏱ Interval: {cfg['min_interval']}–{cfg['max_interval']} min\n"
+        f"📢 Group ID: `{group}`\n"
+        f"📢 Group pings: Always ON (every result)\n"
+        f"🔴 DM Down Alerts: {'ON' if cfg['alert_down'] else 'OFF'}\n"
+        f"🟢 DM Success Alerts: {'ON' if cfg['alert_success'] else 'OFF'}\n"
+        f"🔁 Cycles run: {cycle_count}\n"
+        f"🕐 Time: {now_str()}\n"
+        "━━━━━━━━━━━━━━━━"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lines = read_logs(25)
+    if not lines:
+        await update.message.reply_text("📭 No logs yet.", reply_markup=back_keyboard())
+        return
+    text = "📜 *Last 25 Ping Logs:*\n\n" + "\n".join(lines)
+    # Telegram max message is 4096 chars
+    if len(text) > 4000:
+        text = text[-4000:]
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_clearlogs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    clear_logs()
+    await update.message.reply_text("🗑 Logs cleared.", reply_markup=back_keyboard())
+
+
+@owner_only
+async def cmd_setgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    cfg  = load_config()
+    if chat.type in ("group", "supergroup"):
+        cfg["group_id"] = chat.id
+        save_config(cfg)
+        await update.message.reply_text(
+            f"✅ Alert group set to this chat.\nGroup ID: `{chat.id}`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=back_keyboard(),
+        )
+    elif context.args:
+        try:
+            gid = int(context.args[0])
+            cfg["group_id"] = gid
+            save_config(cfg)
+            await update.message.reply_text(
+                f"✅ Alert group set to `{gid}`",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=back_keyboard(),
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "⚠️ Invalid group ID. Use `/setgroup <group_id>` or run in the group.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+    else:
+        await update.message.reply_text(
+            "Run this command *inside the group* to set it as the alert group,\n"
+            "or use `/setgroup <group_id>` to set manually.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=back_keyboard(),
+        )
+
+
+@owner_only
+async def cmd_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: `/interval <min> <max>`\nExample: `/interval 2 10`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    try:
+        mn = int(args[0])
+        mx = int(args[1])
+        if mn < 1 or mx < mn:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("⚠️ Invalid values. min ≥ 1 and max ≥ min.")
+        return
+    cfg = load_config()
+    cfg["min_interval"] = mn
+    cfg["max_interval"] = mx
+    save_config(cfg)
+    await update.message.reply_text(
+        f"✅ Interval set to {mn}–{mx} minutes.",
+        reply_markup=back_keyboard(),
+    )
+
+
+@owner_only
+async def cmd_alert(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+    if len(args) < 2 or args[0].lower() not in ("down", "success") or args[1].lower() not in ("on", "off"):
+        await update.message.reply_text(
+            "Controls owner DM alerts only (group always gets everything).\n"
+            "Usage:\n`/alert down on` or `/alert down off`\n`/alert success on` or `/alert success off`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    kind  = args[0].lower()
+    state = args[1].lower() == "on"
+    cfg   = load_config()
+    if kind == "down":
+        cfg["alert_down"] = state
+    else:
+        cfg["alert_success"] = state
+    save_config(cfg)
+    label = "DOWN" if kind == "down" else "SUCCESS"
+    val   = "ON ✅" if state else "OFF ❌"
+    await update.message.reply_text(
+        f"✅ Owner DM {label} alerts: {val}\n_(Group always receives all pings regardless.)_",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=back_keyboard(),
+    )
+
+
+@owner_only
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = (
+        "❓ *Help — All Commands*\n\n"
+        "/start or /menu — Main menu\n"
+        "/add <url> <name> — Add a site\n"
+        "/addmulti — Add multiple sites\n"
+        "/remove — Show remove buttons\n"
+        "/remove 1 3 — Remove by number\n"
+        "/removeall — Remove all sites\n"
+        "/list — List all sites\n"
+        "/ping — Ping all sites now\n"
+        "/monitor — Start monitoring\n"
+        "/stop — Stop monitoring\n"
+        "/status — Bot status\n"
+        "/logs — Last 25 logs\n"
+        "/clearlogs — Clear logs\n"
+        "/setgroup — Set alert group\n"
+        "/interval 1 5 — Set interval (min)\n"
+        "/alert down on|off — Toggle owner DM down alerts\n"
+        "/alert success on|off — Toggle owner DM success alerts\n"
+        "/help — This message\n\n"
+        "📢 *Group receives EVERY ping result automatically.*\n"
+        "_All commands are owner-only._"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+
+
+# ═════════════════════════════════════════════
+#  CALLBACK QUERY HANDLER
+# ═════════════════════════════════════════════
+
+@owner_only_callback
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global monitoring_task
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "noop":
+        return
+
+    if data == "menu_back":
+        await query.edit_message_text(
+            "👋 *Uptime Robot Bot*\n\nUse the menu below:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    if data == "menu_add":
+        await query.edit_message_text(
+            "➕ *Add a Site*\n\nSend the command:\n`/add <url> <name>`\nExample:\n`/add https://example.com My Site`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=back_keyboard(),
+        )
+        return
+
+    if data == "menu_addmulti":
+        await query.edit_message_text(
+            "➕ *Add Multiple Sites*\n\nSend:\n`/addmulti`\n`https://site1.com Site One`\n`https://site2.com Site Two`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=back_keyboard(),
+        )
+        return
+
+    if data == "menu_list":
+        sites = load_sites()
+        if not sites:
+            await query.edit_message_text("📭 No sites added yet.", reply_markup=back_keyboard())
+            return
+        lines = [f"*{i+1}.* [{s['name']}]({s['url']})" for i, s in enumerate(sites)]
+        text  = "📋 *Monitored Sites:*\n\n" + "\n".join(lines)
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+        return
+
+    if data == "menu_remove":
+        sites = load_sites()
+        if not sites:
+            await query.edit_message_text("📭 No sites to remove.", reply_markup=back_keyboard())
+            return
+        await query.edit_message_text("🗑 *Remove a Site:*", parse_mode=ParseMode.MARKDOWN, reply_markup=remove_keyboard(sites))
+        return
+
+    if data.startswith("remove_"):
+        sites = load_sites()
+        if data == "remove_all":
+            save_sites([])
+            await query.edit_message_text("🗑 All sites removed.", reply_markup=back_keyboard())
+        else:
+            try:
+                idx = int(data.split("_")[1])
+                if 0 <= idx < len(sites):
+                    name = sites[idx]["name"]
+                    sites.pop(idx)
+                    save_sites(sites)
+                    await query.edit_message_text(f"🗑 Removed: *{name}*", parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+                else:
+                    await query.edit_message_text("⚠️ Site not found.", reply_markup=back_keyboard())
+            except (ValueError, IndexError):
+                await query.edit_message_text("⚠️ Error removing site.", reply_markup=back_keyboard())
+        return
+
+    if data == "menu_monitor":
+        if monitoring_task and not monitoring_task.done():
+            await query.edit_message_text("▶️ Monitoring is already running.", reply_markup=back_keyboard())
+            return
+        cfg = load_config()
+        monitoring_task = asyncio.create_task(monitoring_loop(context.bot))
+        start_msg = (
+            f"▶️ *Monitoring Started!*\n"
+            f"⏱ Interval: {cfg['min_interval']}–{cfg['max_interval']} min\n"
+            f"🌐 Sites: {len(load_sites())}"
+        )
+        await query.edit_message_text(start_msg, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+        await send_alert(context.bot, cfg, f"▶️ Uptime Bot monitoring STARTED\n🕐 {now_str()}")
+        return
+
+    if data == "menu_stop":
+        if monitoring_task and not monitoring_task.done():
+            monitoring_task.cancel()
+            monitoring_task = None
+            cfg = load_config()
+            await query.edit_message_text("⏹ Monitoring stopped.", reply_markup=back_keyboard())
+            await send_alert(context.bot, cfg, f"⏹ Uptime Bot monitoring STOPPED\n🕐 {now_str()}")
+        else:
+            await query.edit_message_text("⏹ Monitoring is not running.", reply_markup=back_keyboard())
+        return
+
+    if data == "menu_ping":
+        sites = load_sites()
+        if not sites:
+            await query.edit_message_text("📭 No sites to ping.", reply_markup=back_keyboard())
+            return
+        await query.edit_message_text("🔍 Pinging all sites… results will appear in the group.")
+        # is_manual=True so cycle_count doesn't increment and no summary fires
+        results = await ping_all_and_alert(context.bot, is_manual=True)
+        lines = []
+        for r in results:
+            icon = "🟢" if r["ok"] else "🔴"
+            lines.append(f"{icon} *{r['name']}* — {r['status']} ({r['response']}ms)")
+        text = "📊 *Ping Results:*\n\n" + "\n".join(lines)
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+        return
+
+    if data == "menu_status":
+        cfg     = load_config()
+        running = monitoring_task is not None and not monitoring_task.done()
+        sites   = load_sites()
+        status  = "▶️ Running" if running else "⏹ Stopped"
+        group   = str(cfg["group_id"]) if cfg["group_id"] else "Not set"
+        text = (
+            f"📊 *Bot Status*\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🔄 Monitor: {status}\n"
+            f"🌐 Sites: {len(sites)}\n"
+            f"⏱ Interval: {cfg['min_interval']}–{cfg['max_interval']} min\n"
+            f"📢 Group ID: `{group}`\n"
+            f"📢 Group pings: Always ON (every result)\n"
+            f"🔴 DM Down Alerts: {'ON' if cfg['alert_down'] else 'OFF'}\n"
+            f"🟢 DM Success Alerts: {'ON' if cfg['alert_success'] else 'OFF'}\n"
+            f"🔁 Cycles run: {cycle_count}\n"
+            f"🕐 Time: {now_str()}\n"
+            "━━━━━━━━━━━━━━━━"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+        return
+
+    if data == "menu_logs":
+        lines = read_logs(25)
+        if not lines:
+            await query.edit_message_text("📭 No logs yet.", reply_markup=back_keyboard())
+            return
+        text = "📜 *Last 25 Ping Logs:*\n\n" + "\n".join(lines)
+        if len(text) > 4000:
+            text = text[-4000:]
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+        return
+
+    if data == "menu_clearlogs":
+        clear_logs()
+        await query.edit_message_text("🗑 Logs cleared.", reply_markup=back_keyboard())
+        return
+
+    if data == "menu_settings":
+        cfg = load_config()
+        await query.edit_message_text(
+            "⚙️ *Settings*\n\n"
+            "📢 The group *always* receives every single ping result.\n"
+            "The toggles below control owner DM alerts only (to avoid DM spam).",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=settings_keyboard(cfg),
+        )
+        return
+
+    if data == "toggle_down":
+        cfg = load_config()
+        cfg["alert_down"] = not cfg["alert_down"]
+        save_config(cfg)
+        await query.edit_message_text(
+            "⚙️ *Settings*\n\n"
+            "📢 The group *always* receives every single ping result.\n"
+            "The toggles below control owner DM alerts only (to avoid DM spam).",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=settings_keyboard(cfg),
+        )
+        return
+
+    if data == "toggle_success":
+        cfg = load_config()
+        cfg["alert_success"] = not cfg["alert_success"]
+        save_config(cfg)
+        await query.edit_message_text(
+            "⚙️ *Settings*\n\n"
+            "📢 The group *always* receives every single ping result.\n"
+            "The toggles below control owner DM alerts only (to avoid DM spam).",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=settings_keyboard(cfg),
+        )
+        return
+
+    if data == "menu_help":
+        text = (
+            "❓ *Help — All Commands*\n\n"
+            "/start or /menu — Main menu\n"
+            "/add <url> <name> — Add a site\n"
+            "/addmulti — Add multiple sites\n"
+            "/remove — Show remove buttons\n"
+            "/remove 1 3 — Remove by number\n"
+            "/removeall — Remove all sites\n"
+            "/list — List all sites\n"
+            "/ping — Ping all sites now\n"
+            "/monitor — Start monitoring\n"
+            "/stop — Stop monitoring\n"
+            "/status — Bot status\n"
+            "/logs — Last 25 logs\n"
+            "/clearlogs — Clear logs\n"
+            "/setgroup — Set alert group\n"
+            "/interval 1 5 — Set interval (min)\n"
+            "/alert down on|off — Toggle owner DM down alerts\n"
+            "/alert success on|off — Toggle owner DM success alerts\n\n"
+            "📢 *Group receives EVERY ping result automatically.*\n"
+            "_All commands are owner-only._"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=back_keyboard())
+        return
+
+
+# ═════════════════════════════════════════════
+#  MAIN
+# ═════════════════════════════════════════════
+
+def main() -> None:
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # Commands
+    app.add_handler(CommandHandler(["start", "menu"], cmd_start))
+    app.add_handler(CommandHandler("add",        cmd_add))
+    app.add_handler(CommandHandler("addmulti",   cmd_addmulti))
+    app.add_handler(CommandHandler("remove",     cmd_remove))
+    app.add_handler(CommandHandler("removeall",  cmd_removeall))
+    app.add_handler(CommandHandler("list",       cmd_list))
+    app.add_handler(CommandHandler("ping",       cmd_ping))
+    app.add_handler(CommandHandler("monitor",    cmd_monitor))
+    app.add_handler(CommandHandler("stop",       cmd_stop))
+    app.add_handler(CommandHandler("status",     cmd_status))
+    app.add_handler(CommandHandler("logs",       cmd_logs))
+    app.add_handler(CommandHandler("clearlogs",  cmd_clearlogs))
+    app.add_handler(CommandHandler("setgroup",   cmd_setgroup))
+    app.add_handler(CommandHandler("interval",   cmd_interval))
+    app.add_handler(CommandHandler("alert",      cmd_alert))
+    app.add_handler(CommandHandler("help",       cmd_help))
+
+    # Inline buttons
+    app.add_handler(CallbackQueryHandler(callback_handler))
+
+    logger.info("Uptime Bot is running…")
+    app.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()
