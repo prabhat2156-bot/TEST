@@ -1,6 +1,3 @@
-# uptime_bot.py
-# pip install python-telegram-bot aiohttp
-
 import asyncio
 import json
 import logging
@@ -30,8 +27,8 @@ from telegram.ext import (
 # ─────────────────────────────────────────────
 #  CONFIG — Edit these before running
 # ─────────────────────────────────────────────
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-OWNER_ID  = 123456789          # Your Telegram user ID (integer)
+BOT_TOKEN = "8348318598:AAH4FgiXxaxHYqu2wDuVKTzWJBa2-Y8hLNQ"
+OWNER_ID  = 8395315423          # Your Telegram user ID (integer)
 
 # ─────────────────────────────────────────────
 #  FILE PATHS
