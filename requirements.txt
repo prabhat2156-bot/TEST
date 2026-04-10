@@ -1,7 +1,1 @@
-python-telegram-bot==20.7
-pandas
-phonenumbers
-openpyxl
-flask
-pyTelegramBotAPI
-python-dotenv
+requests
