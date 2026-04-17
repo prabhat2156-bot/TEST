@@ -1,20 +1,3 @@
-# INSTALL: pip install python-telegram-bot phonenumbers openpyxl vobject
-# requirements.txt:
-#   python-telegram-bot>=20.7
-#   phonenumbers>=8.13.0
-#   openpyxl>=3.1.0
-#   vobject>=0.9.6
-#
-# SETUP INSTRUCTIONS:
-# 1. Install Python 3.10+
-# 2. Create a virtual environment: python -m venv venv && source venv/bin/activate
-# 3. Install dependencies: pip install -r requirements.txt
-# 4. Set your bot token: export BOT_TOKEN="your_token_here"
-#    OR edit the BOT_TOKEN variable at the bottom of this file
-# 5. Run: python bot.py
-#
-# ============================================================
-
 import os
 import re
 import io
@@ -49,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+BOT_TOKEN = "7727685861:AAEJms2Jsjgusw0KDJ3yeytqHDstpuZ-8Bc"
 
 # ─────────────────────────────────────────────
 # CONVERSATION STATES
