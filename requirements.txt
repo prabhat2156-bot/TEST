@@ -1,6 +1,7 @@
 python-telegram-bot==20.7
-vobject==0.9.7
 phonenumbers==8.13.27
+vobject==0.9.6.1
 openpyxl==3.1.2
 Pillow==10.2.0
 pytesseract==0.3.10
+aiofiles==23.2.1
