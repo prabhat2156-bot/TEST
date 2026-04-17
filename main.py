@@ -1,18 +1,3 @@
-"""
-Telegram VCF Bot — Full Production-Ready Code
-==============================================
-Features:
-  /start, File Analysis, File Converter, Quick VCF, VCF Maker (with group name logic),
-  Split File, Merge Files, File Editor, List Maker (OCR), Rename File, Rename Contact,
-  Settings (context.user_data only), Reset, Help
-
-Requirements: python-telegram-bot>=20, phonenumbers, openpyxl, pytesseract, Pillow,
-              vobject, python-telegram-bot[job-queue]
-
-NO database — all settings stored in context.user_data (per-user, resets on restart).
-Simple filenames: no hyphens, no underscores, no special chars.
-"""
-
 import os
 import io
 import re
@@ -57,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 # BOT TOKEN
 # ──────────────────────────────────────────────
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your actual token
+BOT_TOKEN = "7727685861:AAEJms2Jsjgusw0KDJ3yeytqHDstpuZ-8Bc"  # Replace with your actual token
 
 # ──────────────────────────────────────────────
 # DEFAULT SETTINGS (used when nothing is set)
