@@ -40,8 +40,8 @@ from telegram.ext import (
 # CONFIGURATION
 # ──────────────────────────────────────────────────────────────────────────────
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"   # ← replace with your BotFather token
-BOT_NAME  = "VCF Manager Bot"
+BOT_TOKEN = "7727685861:AAEJms2Jsjgusw0KDJ3yeytqHDstpuZ-8Bc"   # ← replace with your BotFather token
+BOT_NAME  = "VCF MAKER "
 DB_PATH   = "vcf_bot.db"
 
 logging.basicConfig(
