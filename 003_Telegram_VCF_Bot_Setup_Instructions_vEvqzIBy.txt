@@ -1,0 +1,143 @@
+# Telegram VCF Bot — Setup Instructions
+
+## Prerequisites
+
+- Python 3.10 or higher
+- A Telegram Bot Token from [@BotFather](https://t.me/BotFather)
+- Tesseract OCR engine installed on your system
+
+---
+
+## 1. Install Tesseract OCR
+
+### Ubuntu / Debian
+```bash
+sudo apt update
+sudo apt install tesseract-ocr -y
+```
+
+### macOS (Homebrew)
+```bash
+brew install tesseract
+```
+
+### Windows
+Download the installer from:
+https://github.com/UB-Mannheim/tesseract/wiki
+Add the install path (e.g. `C:\Program Files\Tesseract-OCR`) to your system PATH.
+
+---
+
+## 2. Clone / Copy the Bot Files
+
+Place these files in a folder, e.g. `vcfbot/`:
+```
+vcfbot/
+├── bot.py
+└── requirements.txt
+```
+
+---
+
+## 3. Create a Virtual Environment (recommended)
+
+```bash
+cd vcfbot
+python -m venv venv
+source venv/bin/activate        # Linux / macOS
+venv\Scripts\activate.bat       # Windows
+```
+
+---
+
+## 4. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 5. Set Your Bot Token
+
+Open `bot.py` and replace the placeholder on this line:
+
+```python
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+```
+
+with your actual token, e.g.:
+
+```python
+BOT_TOKEN = "7123456789:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+---
+
+## 6. Run the Bot
+
+```bash
+python bot.py
+```
+
+You should see:
+```
+Bot is starting…
+```
+
+Open Telegram, find your bot, and send `/start`.
+
+---
+
+## Feature Overview
+
+| Feature | Description |
+|---|---|
+| 📊 File Analysis | Shows total, valid, duplicate, junk, country breakdown |
+| 🔄 File Converter | Converts between VCF, TXT, CSV, XLSX |
+| ⚡ Quick VCF | Type numbers one-by-one → instant VCF |
+| 🛠 VCF Maker | 7-step wizard with group name logic |
+| ✂️ Split File | Splits any file into N-contact chunks |
+| 🔗 Merge Files | Merges multiple VCFs into one |
+| ✏️ File Editor | Paginated contact editor (add/edit/remove) |
+| 📋 List Maker | OCR on WhatsApp screenshots → pending list |
+| 📝 Rename File | Upload → rename → download |
+| 👤 Rename Contact | Renumbers all contacts with new base name |
+| ⚙️ Settings | Per-user defaults (memory only, no DB) |
+| 🔄 Reset | Resets settings to factory defaults |
+| ❓ Help | Full feature guide |
+
+---
+
+## VCF Maker — Group Name Logic
+
+- User sets group name, e.g. **"HONEY TEAM"**
+- File 1: All contacts get **" HONEY TEAM 1"** appended → `Customer 1 HONEY TEAM 1`
+- File 2: All contacts get **" HONEY TEAM 2"** appended → `Customer 501 HONEY TEAM 2`
+- Group number increments **per file**, not per contact
+- User can tap **⏭ Skip** to omit the group name entirely
+
+---
+
+## File Naming Convention
+
+| Output | Filename |
+|---|---|
+| VCF Maker (multi-file) | `madara1.vcf`, `madara2.vcf`, … |
+| Split files | `contacts1.vcf`, `contacts2.vcf`, … |
+| Merged file | `merged.vcf` |
+| Edited file | `contactsedited.vcf` |
+| Renamed contacts | `contactsrenamed.vcf` |
+| Pending list | `PendingList.txt` |
+
+No hyphens, no underscores, no special characters.
+
+---
+
+## Notes
+
+- **No database** — all settings live in `context.user_data` (per-user, resets on bot restart).
+- **Multi-user safe** — each Telegram user has their own isolated `context.user_data`.
+- **Every screen** has ❌ Cancel and 🔙 Back buttons.
+- All text is in **English only**.
+- If Tesseract is not found, List Maker will raise an error; ensure it is installed and on PATH.

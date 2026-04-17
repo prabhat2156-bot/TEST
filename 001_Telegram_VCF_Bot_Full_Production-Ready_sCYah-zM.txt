@@ -1,0 +1,1815 @@
+"""
+Telegram VCF Bot — Full Production-Ready Code
+==============================================
+Features:
+  /start, File Analysis, File Converter, Quick VCF, VCF Maker (with group name logic),
+  Split File, Merge Files, File Editor, List Maker (OCR), Rename File, Rename Contact,
+  Settings (context.user_data only), Reset, Help
+
+Requirements: python-telegram-bot>=20, phonenumbers, openpyxl, pytesseract, Pillow,
+              vobject, python-telegram-bot[job-queue]
+
+NO database — all settings stored in context.user_data (per-user, resets on restart).
+Simple filenames: no hyphens, no underscores, no special chars.
+"""
+
+import os
+import io
+import re
+import csv
+import logging
+import tempfile
+import textwrap
+
+from typing import Optional
+
+import vobject
+import phonenumbers
+import pytesseract
+from PIL import Image
+from openpyxl import Workbook
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters,
+)
+
+# ──────────────────────────────────────────────
+# LOGGING
+# ──────────────────────────────────────────────
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────
+# BOT TOKEN
+# ──────────────────────────────────────────────
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your actual token
+
+# ──────────────────────────────────────────────
+# DEFAULT SETTINGS (used when nothing is set)
+# ──────────────────────────────────────────────
+DEFAULT_SETTINGS = {
+    "vcf_name": "contacts",
+    "contact_name": "Customer",
+    "start_number": 1,
+    "contacts_per_file": 500,
+    "group_name": "",
+}
+
+# ──────────────────────────────────────────────
+# CONVERSATION STATES
+# ──────────────────────────────────────────────
+# VCF Maker states
+(
+    VM_UPLOAD,
+    VM_CHOOSE_FORMAT,
+    VM_VCF_NAME,
+    VM_CONTACT_NAME,
+    VM_START_NUMBER,
+    VM_CONTACTS_PER_FILE,
+    VM_GROUP_NAME,
+    VM_CONFIRM,
+) = range(100, 108)
+
+# Quick VCF states
+(
+    QV_FILE_NAME,
+    QV_CONTACT_NAME,
+    QV_NUMBERS,
+    QV_MORE,
+) = range(200, 204)
+
+# File Converter states
+(
+    FC_UPLOAD,
+    FC_FORMAT,
+) = range(300, 302)
+
+# File Analysis state
+FA_UPLOAD = 400
+
+# Split File states
+(
+    SF_UPLOAD,
+    SF_COUNT,
+) = range(500, 502)
+
+# Merge Files states
+(
+    MF_COLLECTING,
+    MF_DONE,
+) = range(600, 602)
+
+# File Editor states
+(
+    FE_UPLOAD,
+    FE_VIEW,
+    FE_ACTION,
+    FE_EDIT_IDX,
+    FE_EDIT_NAME,
+    FE_EDIT_PHONE,
+    FE_ADD_NAME,
+    FE_ADD_PHONE,
+    FE_REMOVE_IDX,
+) = range(700, 709)
+
+# List Maker states
+(
+    LM_COLLECTING,
+    LM_DONE,
+) = range(800, 802)
+
+# Rename File states
+(
+    RF_UPLOAD,
+    RF_NAME,
+) = range(900, 902)
+
+# Rename Contact states
+(
+    RC_UPLOAD,
+    RC_NAME,
+) = range(1000, 1002)
+
+# Settings state
+SET_MENU = 1100
+SET_EDIT = 1101
+
+# ──────────────────────────────────────────────
+# HELPER: get user settings (merge defaults)
+# ──────────────────────────────────────────────
+def get_settings(context: ContextTypes.DEFAULT_TYPE) -> dict:
+    """Return user settings merged with defaults."""
+    if "settings" not in context.user_data:
+        context.user_data["settings"] = dict(DEFAULT_SETTINGS)
+    return context.user_data["settings"]
+
+
+# ──────────────────────────────────────────────
+# HELPER: build cancel / back keyboard row
+# ──────────────────────────────────────────────
+def cancel_back_row(back_data: Optional[str] = None) -> list:
+    row = []
+    if back_data:
+        row.append(InlineKeyboardButton("🔙 Back", callback_data=back_data))
+    row.append(InlineKeyboardButton("❌ Cancel", callback_data="cancel"))
+    return row
+
+
+# ──────────────────────────────────────────────
+# HELPER: extract phone numbers from text/file
+# ──────────────────────────────────────────────
+def extract_numbers(text: str) -> list:
+    """Extract all phone-number-like strings from raw text."""
+    raw = re.findall(r"[\+\d][\d\s\-\(\)]{6,20}\d", text)
+    cleaned = []
+    for r in raw:
+        n = re.sub(r"[\s\-\(\)]", "", r)
+        if len(n) >= 7:
+            cleaned.append(n)
+    return list(dict.fromkeys(cleaned))  # deduplicate preserving order
+
+
+def detect_country(number: str) -> str:
+    """Return ISO country code or 'Unknown'."""
+    try:
+        parsed = phonenumbers.parse(number, None)
+        region = phonenumbers.region_code_for_number(parsed)
+        return region or "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+def is_valid_number(number: str) -> bool:
+    """Return True if number passes phonenumbers validation."""
+    try:
+        parsed = phonenumbers.parse(number, None)
+        return phonenumbers.is_valid_number(parsed)
+    except Exception:
+        return False
+
+
+# ──────────────────────────────────────────────
+# HELPER: read uploaded file → list of numbers
+# ──────────────────────────────────────────────
+async def read_numbers_from_file(file_bytes: bytes, filename: str) -> list:
+    """Parse VCF / TXT / CSV / XLSX and return list of phone-number strings."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    numbers = []
+
+    if ext == "vcf":
+        text = file_bytes.decode("utf-8", errors="ignore")
+        for component in vobject.readComponents(text):
+            try:
+                for tel in component.contents.get("tel", []):
+                    n = re.sub(r"[\s\-\(\)]", "", str(tel.value))
+                    if n:
+                        numbers.append(n)
+            except Exception:
+                pass
+
+    elif ext in ("txt", "csv"):
+        text = file_bytes.decode("utf-8", errors="ignore")
+        numbers = extract_numbers(text)
+
+    elif ext in ("xlsx", "xls"):
+        from openpyxl import load_workbook
+        wb = load_workbook(filename=io.BytesIO(file_bytes), read_only=True)
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(values_only=True):
+                for cell in row:
+                    if cell:
+                        found = extract_numbers(str(cell))
+                        numbers.extend(found)
+    else:
+        # fallback: treat as text
+        text = file_bytes.decode("utf-8", errors="ignore")
+        numbers = extract_numbers(text)
+
+    return list(dict.fromkeys(numbers))
+
+
+# ──────────────────────────────────────────────
+# HELPER: build VCF bytes from list of (name, number)
+# ──────────────────────────────────────────────
+def build_vcf(contacts: list) -> bytes:
+    """contacts = list of (name_str, phone_str). Returns VCF bytes."""
+    lines = []
+    for name, phone in contacts:
+        lines.append("BEGIN:VCARD")
+        lines.append("VERSION:3.0")
+        lines.append(f"FN:{name}")
+        lines.append(f"TEL;TYPE=CELL:{phone}")
+        lines.append("END:VCARD")
+    return "\n".join(lines).encode("utf-8")
+
+
+# ──────────────────────────────────────────────
+# HELPER: split list into chunks
+# ──────────────────────────────────────────────
+def chunked(lst: list, size: int) -> list:
+    return [lst[i : i + size] for i in range(0, len(lst), size)]
+
+
+# ══════════════════════════════════════════════
+# /START COMMAND
+# ══════════════════════════════════════════════
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    text = (
+        f"👋 Welcome, *{user.first_name}*!\n"
+        f"🆔 Your ID: `{user.id}`\n\n"
+        "Choose a feature:"
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 File Analysis", callback_data="menu_analysis"),
+            InlineKeyboardButton("🔄 File Converter", callback_data="menu_converter"),
+        ],
+        [
+            InlineKeyboardButton("⚡ Quick VCF", callback_data="menu_quickvcf"),
+            InlineKeyboardButton("🛠 VCF Maker", callback_data="menu_vcfmaker"),
+        ],
+        [
+            InlineKeyboardButton("✂️ Split File", callback_data="menu_split"),
+            InlineKeyboardButton("🔗 Merge Files", callback_data="menu_merge"),
+        ],
+        [
+            InlineKeyboardButton("✏️ File Editor", callback_data="menu_editor"),
+            InlineKeyboardButton("📋 List Maker", callback_data="menu_listmaker"),
+        ],
+        [
+            InlineKeyboardButton("📝 Rename File", callback_data="menu_renamefile"),
+            InlineKeyboardButton("👤 Rename Contact", callback_data="menu_renamecontact"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ Settings", callback_data="menu_settings"),
+            InlineKeyboardButton("🔄 Reset", callback_data="menu_reset"),
+        ],
+        [
+            InlineKeyboardButton("❓ Help", callback_data="menu_help"),
+        ],
+    ]
+    await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown",
+    )
+
+
+# ══════════════════════════════════════════════
+# UNIVERSAL CANCEL
+# ══════════════════════════════════════════════
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel any ongoing conversation and return to main menu."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+        await query.edit_message_text(
+            "❌ *Cancelled.* Use /start to return to the main menu.",
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(
+            "❌ *Cancelled.* Use /start to return to the main menu.",
+            parse_mode="Markdown",
+        )
+    context.user_data.pop("_temp", None)
+    return ConversationHandler.END
+
+
+# ──────────────────────────────────────────────
+# HELP
+# ──────────────────────────────────────────────
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        send = query.edit_message_text
+    else:
+        send = update.message.reply_text
+
+    text = (
+        "❓ *Help Guide*\n\n"
+        "📊 *File Analysis* — Upload any file to see totals, duplicates, junk & country breakdown.\n\n"
+        "🔄 *File Converter* — Convert between TXT, VCF, Excel (XLSX), and CSV.\n\n"
+        "⚡ *Quick VCF* — Quickly create a VCF by typing numbers one-by-one.\n\n"
+        "🛠 *VCF Maker* — 7-step wizard: upload file → format → VCF name → contact name → start number → contacts per file → group name → done!\n\n"
+        "✂️ *Split File* — Upload a file and split into chunks of N contacts.\n\n"
+        "🔗 *Merge Files* — Upload multiple VCF files and merge into one.\n\n"
+        "✏️ *File Editor* — Paginated contact editor: edit name/phone, add or remove contacts.\n\n"
+        "📋 *List Maker* — Upload WhatsApp pending screenshots; OCR extracts group names and pending counts → formatted list.\n\n"
+        "📝 *Rename File* — Upload a file, give it a new name, download it.\n\n"
+        "👤 *Rename Contact* — Upload VCF, set a new base name; contacts become 'Name 1', 'Name 2', …\n\n"
+        "⚙️ *Settings* — View/edit your default VCF name, contact name, start number, contacts per file, group name.\n\n"
+        "🔄 *Reset* — Reset all settings to factory defaults.\n\n"
+        "_Every screen has ❌ Cancel and 🔙 Back buttons._"
+    )
+    await send(text, parse_mode="Markdown")
+
+
+# ══════════════════════════════════════════════
+# ── FILE ANALYSIS ──
+# ══════════════════════════════════════════════
+async def analysis_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📊 *File Analysis*\n\nUpload your file (VCF, TXT, CSV, or XLSX):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return FA_UPLOAD
+
+
+async def analysis_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a valid file.")
+        return FA_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    numbers = await read_numbers_from_file(bytes(data), doc.file_name)
+
+    total = len(numbers)
+    valid = [n for n in numbers if is_valid_number(n)]
+    duplicates_raw = total - len(list(dict.fromkeys(numbers)))
+    junk = total - len(valid)
+
+    # country breakdown
+    country_map: dict = {}
+    for n in valid:
+        c = detect_country(n)
+        country_map[c] = country_map.get(c, 0) + 1
+    country_lines = "\n".join(
+        f"  🌍 {k}: {v}" for k, v in sorted(country_map.items(), key=lambda x: -x[1])
+    )
+
+    text = (
+        f"📊 *Analysis Result*\n\n"
+        f"📁 File: `{doc.file_name}`\n"
+        f"📋 Total numbers: *{total}*\n"
+        f"✅ Valid (clean): *{len(valid)}*\n"
+        f"♻️ Duplicates: *{duplicates_raw}*\n"
+        f"🗑 Junk/invalid: *{junk}*\n\n"
+        f"*Country Breakdown:*\n{country_lines or '  N/A'}"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── FILE CONVERTER ──
+# ══════════════════════════════════════════════
+async def converter_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "🔄 *File Converter*\n\nUpload your file (VCF, TXT, CSV, or XLSX):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return FC_UPLOAD
+
+
+async def converter_receive_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a valid file.")
+        return FC_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    numbers = await read_numbers_from_file(bytes(data), doc.file_name)
+    context.user_data["_temp"] = {"numbers": numbers, "orig_name": doc.file_name}
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📄 TXT", callback_data="conv_txt"),
+            InlineKeyboardButton("📇 VCF", callback_data="conv_vcf"),
+        ],
+        [
+            InlineKeyboardButton("📊 Excel (XLSX)", callback_data="conv_xlsx"),
+            InlineKeyboardButton("🗂 CSV", callback_data="conv_csv"),
+        ],
+        cancel_back_row("menu_converter"),
+    ]
+    await update.message.reply_text(
+        f"✅ Loaded *{len(numbers)}* numbers. Choose output format:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return FC_FORMAT
+
+
+async def converter_do_convert(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    fmt = query.data.replace("conv_", "")
+    tmp = context.user_data.get("_temp", {})
+    numbers = tmp.get("numbers", [])
+    settings = get_settings(context)
+    base = settings["vcf_name"]
+
+    if fmt == "txt":
+        content = "\n".join(numbers).encode("utf-8")
+        fname = f"{base}.txt"
+    elif fmt == "vcf":
+        contacts = [
+            (f"{settings['contact_name']} {settings['start_number'] + i}", n)
+            for i, n in enumerate(numbers)
+        ]
+        content = build_vcf(contacts)
+        fname = f"{base}.vcf"
+    elif fmt == "xlsx":
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Contacts"
+        ws.append(["#", "Phone Number"])
+        for i, n in enumerate(numbers, 1):
+            ws.append([i, n])
+        buf = io.BytesIO()
+        wb.save(buf)
+        content = buf.getvalue()
+        fname = f"{base}.xlsx"
+    elif fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["#", "Phone Number"])
+        for i, n in enumerate(numbers, 1):
+            writer.writerow([i, n])
+        content = buf.getvalue().encode("utf-8")
+        fname = f"{base}.csv"
+    else:
+        await query.edit_message_text("Unknown format.")
+        return ConversationHandler.END
+
+    await query.edit_message_text(f"✅ Converted! Sending `{fname}`…", parse_mode="Markdown")
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=InputFile(io.BytesIO(content), filename=fname),
+        caption=f"🔄 Converted file: *{fname}* ({len(numbers)} entries)",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── QUICK VCF ──
+# ══════════════════════════════════════════════
+async def quickvcf_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {"numbers": [], "file_name": "", "contact_name": ""}
+    await query.edit_message_text(
+        "⚡ *Quick VCF*\n\nEnter the VCF file name (e.g. `madara`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return QV_FILE_NAME
+
+
+async def quickvcf_file_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    name = update.message.text.strip()
+    context.user_data["_temp"]["file_name"] = re.sub(r"[^a-zA-Z0-9]", "", name) or "contacts"
+    await update.message.reply_text(
+        "Enter the contact base name (e.g. `Customer`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row("menu_quickvcf")]),
+    )
+    return QV_CONTACT_NAME
+
+
+async def quickvcf_contact_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["_temp"]["contact_name"] = update.message.text.strip()
+    await update.message.reply_text(
+        "Enter a phone number (or multiple, one per line):",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row("menu_quickvcf")]),
+    )
+    return QV_NUMBERS
+
+
+async def quickvcf_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    lines = update.message.text.strip().splitlines()
+    for line in lines:
+        nums = extract_numbers(line)
+        context.user_data["_temp"]["numbers"].extend(nums)
+    total = len(context.user_data["_temp"]["numbers"])
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Add More", callback_data="qv_more"),
+            InlineKeyboardButton("✅ Finish", callback_data="qv_finish"),
+        ],
+        cancel_back_row(),
+    ]
+    await update.message.reply_text(
+        f"📋 Numbers so far: *{total}*. Add more or finish?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return QV_MORE
+
+
+async def quickvcf_more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "Enter more phone numbers (one per line):",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return QV_NUMBERS
+
+
+async def quickvcf_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    tmp = context.user_data.get("_temp", {})
+    numbers = tmp.get("numbers", [])
+    file_name = tmp.get("file_name", "contacts")
+    contact_name = tmp.get("contact_name", "Contact")
+
+    contacts = [(f"{contact_name} {i + 1}", n) for i, n in enumerate(numbers)]
+    content = build_vcf(contacts)
+    fname = f"{file_name}.vcf"
+
+    await query.edit_message_text(f"✅ Creating `{fname}` with {len(contacts)} contacts…", parse_mode="Markdown")
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=InputFile(io.BytesIO(content), filename=fname),
+        caption=f"⚡ Quick VCF: *{fname}* — {len(contacts)} contacts",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── VCF MAKER (7-step wizard) ──
+# ══════════════════════════════════════════════
+async def vcfmaker_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    settings = get_settings(context)
+    context.user_data["_temp"] = {
+        "numbers": [],
+        "vcf_name": settings["vcf_name"],
+        "contact_name": settings["contact_name"],
+        "start_number": settings["start_number"],
+        "contacts_per_file": settings["contacts_per_file"],
+        "group_name": settings["group_name"],
+    }
+    await query.edit_message_text(
+        "🛠 *VCF Maker* — Step 1/7\n\nUpload your source file (VCF, TXT, CSV, or XLSX):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return VM_UPLOAD
+
+
+async def vcfmaker_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a valid file.")
+        return VM_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    numbers = await read_numbers_from_file(bytes(data), doc.file_name)
+    context.user_data["_temp"]["numbers"] = numbers
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📄 TXT", callback_data="vmfmt_txt"),
+            InlineKeyboardButton("📇 VCF", callback_data="vmfmt_vcf"),
+        ],
+        [
+            InlineKeyboardButton("📊 Excel (XLSX)", callback_data="vmfmt_xlsx"),
+            InlineKeyboardButton("🗂 CSV", callback_data="vmfmt_csv"),
+        ],
+        cancel_back_row(),
+    ]
+    await update.message.reply_text(
+        f"✅ Loaded *{len(numbers)}* numbers.\n\n🛠 Step 2/7 — Choose output format:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return VM_CHOOSE_FORMAT
+
+
+async def vcfmaker_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    fmt = query.data.replace("vmfmt_", "")
+    context.user_data["_temp"]["format"] = fmt
+    default_name = context.user_data["_temp"]["vcf_name"]
+    await query.edit_message_text(
+        f"🛠 Step 3/7 — Enter VCF file name (default: `{default_name}`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return VM_VCF_NAME
+
+
+async def vcfmaker_vcf_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    name = re.sub(r"[^a-zA-Z0-9]", "", update.message.text.strip())
+    context.user_data["_temp"]["vcf_name"] = name or context.user_data["_temp"]["vcf_name"]
+    default_cn = context.user_data["_temp"]["contact_name"]
+    await update.message.reply_text(
+        f"🛠 Step 4/7 — Enter contact base name (default: `{default_cn}`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return VM_CONTACT_NAME
+
+
+async def vcfmaker_contact_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["_temp"]["contact_name"] = update.message.text.strip() or context.user_data["_temp"]["contact_name"]
+    default_sn = context.user_data["_temp"]["start_number"]
+    await update.message.reply_text(
+        f"🛠 Step 5/7 — Starting contact number (default: `{default_sn}`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return VM_START_NUMBER
+
+
+async def vcfmaker_start_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        sn = int(update.message.text.strip())
+    except ValueError:
+        sn = context.user_data["_temp"]["start_number"]
+    context.user_data["_temp"]["start_number"] = sn
+    default_cpf = context.user_data["_temp"]["contacts_per_file"]
+    await update.message.reply_text(
+        f"🛠 Step 6/7 — Contacts per file (default: `{default_cpf}`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return VM_CONTACTS_PER_FILE
+
+
+async def vcfmaker_per_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        cpf = int(update.message.text.strip())
+    except ValueError:
+        cpf = context.user_data["_temp"]["contacts_per_file"]
+    context.user_data["_temp"]["contacts_per_file"] = cpf
+    default_gn = context.user_data["_temp"].get("group_name", "")
+    hint = f" (current: `{default_gn}`)" if default_gn else ""
+    keyboard = [
+        [InlineKeyboardButton("⏭ Skip", callback_data="vm_skip_group")],
+        cancel_back_row(),
+    ]
+    await update.message.reply_text(
+        f"🛠 Step 7/7 — Enter group name{hint} or skip:\n"
+        "_Group name is appended per file, e.g. 'HONEY TEAM 1', 'HONEY TEAM 2'…_",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return VM_GROUP_NAME
+
+
+async def vcfmaker_group_name_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """User typed a group name."""
+    context.user_data["_temp"]["group_name"] = update.message.text.strip()
+    return await _vcfmaker_confirm(update, context)
+
+
+async def vcfmaker_group_name_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """User clicked Skip."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"]["group_name"] = ""
+    return await _vcfmaker_confirm_from_query(query, context)
+
+
+async def _vcfmaker_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    tmp = context.user_data["_temp"]
+    total = len(tmp["numbers"])
+    files_needed = -(-total // tmp["contacts_per_file"])  # ceiling division
+    group_line = f"  Group name: `{tmp['group_name']}`" if tmp["group_name"] else "  Group name: _(none)_"
+    text = (
+        f"🛠 *VCF Maker — Confirm*\n\n"
+        f"  Numbers: *{total}*\n"
+        f"  Format: `{tmp.get('format','vcf')}`\n"
+        f"  File name: `{tmp['vcf_name']}`\n"
+        f"  Contact name: `{tmp['contact_name']}`\n"
+        f"  Start number: `{tmp['start_number']}`\n"
+        f"  Per file: `{tmp['contacts_per_file']}`\n"
+        f"{group_line}\n"
+        f"  Files to create: *{files_needed}*\n\n"
+        "Proceed?"
+    )
+    keyboard = [
+        [InlineKeyboardButton("✅ Generate", callback_data="vm_generate")],
+        cancel_back_row(),
+    ]
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    return VM_CONFIRM
+
+
+async def _vcfmaker_confirm_from_query(query, context: ContextTypes.DEFAULT_TYPE) -> int:
+    tmp = context.user_data["_temp"]
+    total = len(tmp["numbers"])
+    files_needed = -(-total // tmp["contacts_per_file"])
+    group_line = f"  Group name: `{tmp['group_name']}`" if tmp["group_name"] else "  Group name: _(none)_"
+    text = (
+        f"🛠 *VCF Maker — Confirm*\n\n"
+        f"  Numbers: *{total}*\n"
+        f"  Format: `{tmp.get('format','vcf')}`\n"
+        f"  File name: `{tmp['vcf_name']}`\n"
+        f"  Contact name: `{tmp['contact_name']}`\n"
+        f"  Start number: `{tmp['start_number']}`\n"
+        f"  Per file: `{tmp['contacts_per_file']}`\n"
+        f"{group_line}\n"
+        f"  Files to create: *{files_needed}*\n\n"
+        "Proceed?"
+    )
+    keyboard = [
+        [InlineKeyboardButton("✅ Generate", callback_data="vm_generate")],
+        cancel_back_row(),
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    return VM_CONFIRM
+
+
+async def vcfmaker_generate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    tmp = context.user_data["_temp"]
+
+    numbers = tmp["numbers"]
+    fmt = tmp.get("format", "vcf")
+    vcf_name = tmp["vcf_name"]
+    contact_name = tmp["contact_name"]
+    start_number = tmp["start_number"]
+    per_file = tmp["contacts_per_file"]
+    group_name = tmp.get("group_name", "")
+
+    chunks = chunked(numbers, per_file)
+    await query.edit_message_text(f"⚙️ Generating *{len(chunks)}* file(s)…", parse_mode="Markdown")
+
+    for file_idx, chunk in enumerate(chunks, 1):
+        # Build contact list for this chunk
+        contacts = []
+        for j, phone in enumerate(chunk):
+            seq = start_number + (file_idx - 1) * per_file + j  # global sequence
+            base_contact_name = f"{contact_name} {seq}"
+            # CHANGE 1: group name appended per file
+            if group_name:
+                full_name = f"{base_contact_name} {group_name} {file_idx}"
+            else:
+                full_name = base_contact_name
+            contacts.append((full_name, phone))
+
+        # Build file content
+        if fmt == "vcf":
+            content = build_vcf(contacts)
+            fname = f"{vcf_name}{file_idx}.vcf"
+        elif fmt == "txt":
+            lines = [phone for _, phone in contacts]
+            content = "\n".join(lines).encode("utf-8")
+            fname = f"{vcf_name}{file_idx}.txt"
+        elif fmt == "xlsx":
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Contacts"
+            ws.append(["#", "Name", "Phone"])
+            for i, (nm, ph) in enumerate(contacts, 1):
+                ws.append([i, nm, ph])
+            buf = io.BytesIO()
+            wb.save(buf)
+            content = buf.getvalue()
+            fname = f"{vcf_name}{file_idx}.xlsx"
+        elif fmt == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(["#", "Name", "Phone"])
+            for i, (nm, ph) in enumerate(contacts, 1):
+                writer.writerow([i, nm, ph])
+            content = buf.getvalue().encode("utf-8")
+            fname = f"{vcf_name}{file_idx}.csv"
+        else:
+            content = build_vcf(contacts)
+            fname = f"{vcf_name}{file_idx}.vcf"
+
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=InputFile(io.BytesIO(content), filename=fname),
+            caption=f"📁 File {file_idx}/{len(chunks)}: `{fname}` — {len(contacts)} contacts",
+            parse_mode="Markdown",
+        )
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"✅ Done! Sent *{len(chunks)}* file(s).",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── SPLIT FILE ──
+# ══════════════════════════════════════════════
+async def split_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {}
+    await query.edit_message_text(
+        "✂️ *Split File*\n\nUpload your file (VCF, TXT, CSV, or XLSX):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return SF_UPLOAD
+
+
+async def split_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a valid file.")
+        return SF_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    numbers = await read_numbers_from_file(bytes(data), doc.file_name)
+    ext = doc.file_name.rsplit(".", 1)[-1].lower() if "." in doc.file_name else "txt"
+    base = re.sub(r"[^a-zA-Z0-9]", "", doc.file_name.rsplit(".", 1)[0]) or "contacts"
+    context.user_data["_temp"] = {"numbers": numbers, "ext": ext, "base": base}
+
+    await update.message.reply_text(
+        f"✅ Loaded *{len(numbers)}* numbers. How many contacts per split file?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return SF_COUNT
+
+
+async def split_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        count = int(update.message.text.strip())
+        if count < 1:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("Please enter a valid positive number.")
+        return SF_COUNT
+
+    tmp = context.user_data["_temp"]
+    numbers = tmp["numbers"]
+    ext = tmp["ext"]
+    base = tmp["base"]
+    chunks = chunked(numbers, count)
+    settings = get_settings(context)
+
+    await update.message.reply_text(f"⚙️ Splitting into *{len(chunks)}* file(s)…", parse_mode="Markdown")
+
+    for i, chunk in enumerate(chunks, 1):
+        fname = f"{base}{i}.{ext}"
+        if ext == "vcf":
+            contacts = [(f"{settings['contact_name']} {j + 1}", n) for j, n in enumerate(chunk)]
+            content = build_vcf(contacts)
+        elif ext in ("txt",):
+            content = "\n".join(chunk).encode("utf-8")
+        elif ext == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(["#", "Phone"])
+            for j, n in enumerate(chunk, 1):
+                writer.writerow([j, n])
+            content = buf.getvalue().encode("utf-8")
+        elif ext in ("xlsx", "xls"):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Contacts"
+            ws.append(["#", "Phone"])
+            for j, n in enumerate(chunk, 1):
+                ws.append([j, n])
+            buf = io.BytesIO()
+            wb.save(buf)
+            content = buf.getvalue()
+        else:
+            content = "\n".join(chunk).encode("utf-8")
+
+        await update.message.reply_document(
+            document=InputFile(io.BytesIO(content), filename=fname),
+            caption=f"✂️ Part {i}/{len(chunks)}: `{fname}` — {len(chunk)} entries",
+            parse_mode="Markdown",
+        )
+
+    await update.message.reply_text(f"✅ Split complete! {len(chunks)} files sent.", parse_mode="Markdown")
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── MERGE FILES ──
+# ══════════════════════════════════════════════
+async def merge_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {"files": []}
+    keyboard = [
+        [InlineKeyboardButton("✅ Done", callback_data="merge_done")],
+        cancel_back_row(),
+    ]
+    await query.edit_message_text(
+        "🔗 *Merge Files*\n\nUpload VCF files one by one. Tap *Done* when finished.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return MF_COLLECTING
+
+
+async def merge_collect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a VCF file.")
+        return MF_COLLECTING
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    context.user_data["_temp"]["files"].append(bytes(data))
+    count = len(context.user_data["_temp"]["files"])
+    keyboard = [
+        [InlineKeyboardButton("✅ Done", callback_data="merge_done")],
+        cancel_back_row(),
+    ]
+    await update.message.reply_text(
+        f"✅ File {count} received. Upload more or tap Done.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return MF_COLLECTING
+
+
+async def merge_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    files = context.user_data["_temp"].get("files", [])
+    if not files:
+        await query.edit_message_text("No files uploaded. Cancelled.")
+        return ConversationHandler.END
+
+    all_numbers = []
+    for f in files:
+        nums = await read_numbers_from_file(f, "file.vcf")
+        all_numbers.extend(nums)
+    all_numbers = list(dict.fromkeys(all_numbers))
+    settings = get_settings(context)
+    contacts = [(f"{settings['contact_name']} {i + 1}", n) for i, n in enumerate(all_numbers)]
+    content = build_vcf(contacts)
+
+    await query.edit_message_text(
+        f"✅ Merged *{len(files)}* files — *{len(contacts)}* unique contacts.",
+        parse_mode="Markdown",
+    )
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=InputFile(io.BytesIO(content), filename="merged.vcf"),
+        caption="🔗 merged.vcf",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── FILE EDITOR ──
+# ══════════════════════════════════════════════
+EDITOR_PAGE_SIZE = 10
+
+
+def editor_page_keyboard(contacts: list, page: int) -> InlineKeyboardMarkup:
+    total = len(contacts)
+    pages = max(1, -(-total // EDITOR_PAGE_SIZE))
+    start = page * EDITOR_PAGE_SIZE
+    end = min(start + EDITOR_PAGE_SIZE, total)
+    rows = []
+    for i in range(start, end):
+        n, p = contacts[i]
+        rows.append([InlineKeyboardButton(f"{i+1}. {n} | {p}", callback_data=f"fe_sel_{i}")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("◀️ Prev", callback_data=f"fe_page_{page-1}"))
+    nav.append(InlineKeyboardButton(f"{page+1}/{pages}", callback_data="noop"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton("Next ▶️", callback_data=f"fe_page_{page+1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton("➕ Add Contact", callback_data="fe_add")])
+    rows.append([InlineKeyboardButton("💾 Save & Download", callback_data="fe_save")])
+    rows.append(cancel_back_row())
+    return InlineKeyboardMarkup(rows)
+
+
+async def editor_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {"contacts": [], "page": 0}
+    await query.edit_message_text(
+        "✏️ *File Editor*\n\nUpload a VCF file to edit:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return FE_UPLOAD
+
+
+async def editor_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a VCF file.")
+        return FE_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    text = bytes(data).decode("utf-8", errors="ignore")
+
+    contacts = []
+    for comp in vobject.readComponents(text):
+        try:
+            fn = str(comp.fn.value) if hasattr(comp, "fn") else "Unknown"
+            tel = ""
+            for t in comp.contents.get("tel", []):
+                tel = str(t.value)
+                break
+            contacts.append((fn, tel))
+        except Exception:
+            pass
+
+    if not contacts:
+        await update.message.reply_text("No contacts found in file.")
+        return FE_UPLOAD
+
+    context.user_data["_temp"]["contacts"] = contacts
+    context.user_data["_temp"]["page"] = 0
+    await update.message.reply_text(
+        f"✅ Loaded *{len(contacts)}* contacts. Select one to edit/remove:",
+        parse_mode="Markdown",
+        reply_markup=editor_page_keyboard(contacts, 0),
+    )
+    return FE_VIEW
+
+
+async def editor_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.replace("fe_page_", ""))
+    context.user_data["_temp"]["page"] = page
+    contacts = context.user_data["_temp"]["contacts"]
+    await query.edit_message_reply_markup(reply_markup=editor_page_keyboard(contacts, page))
+    return FE_VIEW
+
+
+async def editor_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    idx = int(query.data.replace("fe_sel_", ""))
+    contacts = context.user_data["_temp"]["contacts"]
+    n, p = contacts[idx]
+    context.user_data["_temp"]["edit_idx"] = idx
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Edit", callback_data=f"fe_edit_{idx}"),
+            InlineKeyboardButton("🗑 Remove", callback_data=f"fe_rem_{idx}"),
+        ],
+        [InlineKeyboardButton("🔙 Back", callback_data="fe_back_list")],
+        cancel_back_row(),
+    ]
+    await query.edit_message_text(
+        f"📇 Contact #{idx+1}\n*Name:* {n}\n*Phone:* {p}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return FE_ACTION
+
+
+async def editor_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    idx = int(query.data.replace("fe_edit_", ""))
+    context.user_data["_temp"]["edit_idx"] = idx
+    await query.edit_message_text(
+        "Enter new name for this contact (or send '-' to keep current):",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row("fe_back_list")]),
+    )
+    return FE_EDIT_NAME
+
+
+async def editor_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    idx = context.user_data["_temp"]["edit_idx"]
+    contacts = context.user_data["_temp"]["contacts"]
+    new_name = update.message.text.strip()
+    if new_name != "-":
+        contacts[idx] = (new_name, contacts[idx][1])
+    await update.message.reply_text(
+        "Enter new phone number (or send '-' to keep current):",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return FE_EDIT_PHONE
+
+
+async def editor_edit_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    idx = context.user_data["_temp"]["edit_idx"]
+    contacts = context.user_data["_temp"]["contacts"]
+    new_phone = update.message.text.strip()
+    if new_phone != "-":
+        contacts[idx] = (contacts[idx][0], new_phone)
+    page = context.user_data["_temp"].get("page", 0)
+    await update.message.reply_text(
+        f"✅ Contact updated. Showing list:",
+        reply_markup=editor_page_keyboard(contacts, page),
+    )
+    return FE_VIEW
+
+
+async def editor_remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    idx = int(query.data.replace("fe_rem_", ""))
+    contacts = context.user_data["_temp"]["contacts"]
+    removed = contacts.pop(idx)
+    page = context.user_data["_temp"].get("page", 0)
+    await query.edit_message_text(
+        f"🗑 Removed: *{removed[0]}*. {len(contacts)} contacts remaining.",
+        parse_mode="Markdown",
+        reply_markup=editor_page_keyboard(contacts, page),
+    )
+    return FE_VIEW
+
+
+async def editor_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "Enter new contact name:",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return FE_ADD_NAME
+
+
+async def editor_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["_temp"]["new_name"] = update.message.text.strip()
+    await update.message.reply_text(
+        "Enter phone number for this contact:",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return FE_ADD_PHONE
+
+
+async def editor_add_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    phone = update.message.text.strip()
+    name = context.user_data["_temp"].pop("new_name", "New Contact")
+    contacts = context.user_data["_temp"]["contacts"]
+    contacts.append((name, phone))
+    page = context.user_data["_temp"].get("page", 0)
+    await update.message.reply_text(
+        f"✅ Added *{name}*. Total: {len(contacts)} contacts.",
+        parse_mode="Markdown",
+        reply_markup=editor_page_keyboard(contacts, page),
+    )
+    return FE_VIEW
+
+
+async def editor_back_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    contacts = context.user_data["_temp"]["contacts"]
+    page = context.user_data["_temp"].get("page", 0)
+    await query.edit_message_text(
+        "✏️ *File Editor* — Contacts:",
+        parse_mode="Markdown",
+        reply_markup=editor_page_keyboard(contacts, page),
+    )
+    return FE_VIEW
+
+
+async def editor_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    contacts = context.user_data["_temp"]["contacts"]
+    content = build_vcf(contacts)
+    await query.edit_message_text(f"💾 Saving *{len(contacts)}* contacts…", parse_mode="Markdown")
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=InputFile(io.BytesIO(content), filename="contactsedited.vcf"),
+        caption="✏️ contactsedited.vcf",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── LIST MAKER (OCR) ──
+# ══════════════════════════════════════════════
+async def listmaker_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {"images": []}
+    keyboard = [
+        [InlineKeyboardButton("✅ Done", callback_data="lm_done")],
+        cancel_back_row(),
+    ]
+    await query.edit_message_text(
+        "📋 *List Maker*\n\n"
+        "Upload WhatsApp pending request screenshots. You can upload multiple.\n"
+        "Tap *Done* when finished.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return LM_COLLECTING
+
+
+async def listmaker_collect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Accept photo or document images."""
+    image_data = None
+
+    if update.message.photo:
+        photo = update.message.photo[-1]  # highest res
+        file = await photo.get_file()
+        image_data = await file.download_as_bytearray()
+    elif update.message.document:
+        doc = update.message.document
+        if doc.mime_type and doc.mime_type.startswith("image/"):
+            file = await doc.get_file()
+            image_data = await file.download_as_bytearray()
+
+    if image_data is None:
+        await update.message.reply_text("Please send an image (photo or image file).")
+        return LM_COLLECTING
+
+    context.user_data["_temp"]["images"].append(bytes(image_data))
+    count = len(context.user_data["_temp"]["images"])
+    keyboard = [
+        [InlineKeyboardButton("✅ Done", callback_data="lm_done")],
+        cancel_back_row(),
+    ]
+    await update.message.reply_text(
+        f"📸 {count} screenshot(s) received. Upload more or tap Done.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return LM_COLLECTING
+
+
+def parse_pending_from_ocr(ocr_text: str) -> list:
+    """
+    Parse OCR text from WhatsApp pending screenshots.
+    Returns list of (group_name, pending_count) tuples.
+
+    Heuristic: lines containing a number followed by 'pending' or
+    preceded by group name patterns.
+    """
+    results = []
+    lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+
+    # Pattern: "Group Name    45 pending" or "Group Name\n45 pending"
+    combined_text = " | ".join(lines)
+
+    # Try to find entries like "SomeName ... <digits> pending"
+    # or lines with a number that look like a count
+    pattern = re.compile(
+        r"([A-Za-z][A-Za-z0-9 _\-&]{2,40}?)\s+(\d{1,5})\s*(?:pending|Pending|PENDING)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(combined_text):
+        group = match.group(1).strip()
+        count = int(match.group(2))
+        results.append((group, count))
+
+    # Fallback: look for lines with digits near group-name-like lines
+    if not results:
+        for i, line in enumerate(lines):
+            num_match = re.search(r"\b(\d{1,5})\b", line)
+            if num_match:
+                count = int(num_match.group(1))
+                # try to get group name from previous line
+                if i > 0 and not re.search(r"\d", lines[i - 1]):
+                    results.append((lines[i - 1], count))
+                else:
+                    # extract text before the number
+                    name_part = line[: num_match.start()].strip(" :-|")
+                    if name_part:
+                        results.append((name_part, count))
+
+    return results
+
+
+async def listmaker_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    images = context.user_data["_temp"].get("images", [])
+    if not images:
+        await query.edit_message_text("No images uploaded. Cancelled.")
+        return ConversationHandler.END
+
+    await query.edit_message_text(f"🔍 Processing {len(images)} screenshot(s) with OCR…")
+
+    all_entries = []
+    for img_bytes in images:
+        try:
+            img = Image.open(io.BytesIO(img_bytes))
+            ocr_text = pytesseract.image_to_string(img)
+            entries = parse_pending_from_ocr(ocr_text)
+            all_entries.extend(entries)
+        except Exception as e:
+            logger.warning(f"OCR error: {e}")
+
+    if not all_entries:
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=(
+                "⚠️ Could not extract pending request data from the screenshots.\n"
+                "Make sure the screenshots clearly show group names and pending counts."
+            ),
+        )
+        return ConversationHandler.END
+
+    # Build formatted table
+    header = f"{'Sr.':<5} {'Group Name':<25} {'Pending'}"
+    divider = "─" * 40
+    rows = [header, divider]
+    for i, (name, count) in enumerate(all_entries, 1):
+        rows.append(f"{i:<5} {name[:24]:<25} {count}")
+    table = "\n".join(rows)
+    full_text = f"📋 *Pending Request List*\n\n```\n{table}\n```"
+
+    # Send as message
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=full_text,
+        parse_mode="Markdown",
+    )
+
+    # Send as text file
+    file_content = f"Pending Request List\n\n{table}\n".encode("utf-8")
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=InputFile(io.BytesIO(file_content), filename="PendingList.txt"),
+        caption="📋 PendingList.txt",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── RENAME FILE ──
+# ══════════════════════════════════════════════
+async def renamefile_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {}
+    await query.edit_message_text(
+        "📝 *Rename File*\n\nUpload any file to rename:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return RF_UPLOAD
+
+
+async def renamefile_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a file.")
+        return RF_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    ext = doc.file_name.rsplit(".", 1)[-1].lower() if "." in doc.file_name else ""
+    context.user_data["_temp"] = {"data": bytes(data), "ext": ext}
+    await update.message.reply_text(
+        "Enter the new file name (without extension):",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return RF_NAME
+
+
+async def renamefile_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_name = re.sub(r"[^a-zA-Z0-9]", "", update.message.text.strip()) or "file"
+    tmp = context.user_data["_temp"]
+    ext = tmp["ext"]
+    fname = f"{new_name}.{ext}" if ext else new_name
+    await update.message.reply_document(
+        document=InputFile(io.BytesIO(tmp["data"]), filename=fname),
+        caption=f"📝 Renamed: `{fname}`",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── RENAME CONTACT ──
+# ══════════════════════════════════════════════
+async def renamecontact_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data["_temp"] = {}
+    await query.edit_message_text(
+        "👤 *Rename Contact*\n\nUpload a VCF file:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return RC_UPLOAD
+
+
+async def renamecontact_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("Please upload a VCF file.")
+        return RC_UPLOAD
+
+    file = await doc.get_file()
+    data = await file.download_as_bytearray()
+    numbers = await read_numbers_from_file(bytes(data), doc.file_name)
+    context.user_data["_temp"] = {"numbers": numbers}
+    await update.message.reply_text(
+        f"✅ {len(numbers)} contacts loaded.\n\nEnter new base name (e.g. `Customer`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row()]),
+    )
+    return RC_NAME
+
+
+async def renamecontact_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    base_name = update.message.text.strip()
+    numbers = context.user_data["_temp"]["numbers"]
+    contacts = [(f"{base_name} {i + 1}", n) for i, n in enumerate(numbers)]
+    content = build_vcf(contacts)
+    await update.message.reply_document(
+        document=InputFile(io.BytesIO(content), filename="contactsrenamed.vcf"),
+        caption=f"👤 contactsrenamed.vcf — {len(contacts)} contacts renamed to *{base_name} 1…{len(contacts)}*",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════
+# ── SETTINGS ──
+# ══════════════════════════════════════════════
+def settings_text(settings: dict) -> str:
+    return (
+        "⚙️ *Current Settings*\n\n"
+        f"📁 VCF Name: `{settings['vcf_name']}`\n"
+        f"👤 Contact Name: `{settings['contact_name']}`\n"
+        f"🔢 Start Number: `{settings['start_number']}`\n"
+        f"📦 Contacts Per File: `{settings['contacts_per_file']}`\n"
+        f"🏷 Group Name: `{settings['group_name'] or '(none)'}`\n\n"
+        "Tap a field to edit:"
+    )
+
+
+def settings_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📁 VCF Name", callback_data="set_vcf_name")],
+        [InlineKeyboardButton("👤 Contact Name", callback_data="set_contact_name")],
+        [InlineKeyboardButton("🔢 Start Number", callback_data="set_start_number")],
+        [InlineKeyboardButton("📦 Contacts Per File", callback_data="set_contacts_per_file")],
+        [InlineKeyboardButton("🏷 Group Name", callback_data="set_group_name")],
+        cancel_back_row(),
+    ])
+
+
+async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    settings = get_settings(context)
+    query = update.callback_query
+    if query:
+        await query.answer()
+        await query.edit_message_text(
+            settings_text(settings),
+            parse_mode="Markdown",
+            reply_markup=settings_keyboard(),
+        )
+    else:
+        await update.message.reply_text(
+            settings_text(settings),
+            parse_mode="Markdown",
+            reply_markup=settings_keyboard(),
+        )
+    return SET_MENU
+
+
+async def settings_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    field = query.data.replace("set_", "")
+    context.user_data["_temp"] = {"edit_field": field}
+    labels = {
+        "vcf_name": "VCF file base name",
+        "contact_name": "contact base name",
+        "start_number": "starting contact number",
+        "contacts_per_file": "contacts per file",
+        "group_name": "group name (or send '-' to clear)",
+    }
+    await query.edit_message_text(
+        f"Enter new value for *{labels.get(field, field)}*:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([cancel_back_row("menu_settings")]),
+    )
+    return SET_EDIT
+
+
+async def settings_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    value = update.message.text.strip()
+    field = context.user_data["_temp"].get("edit_field")
+    settings = get_settings(context)
+
+    if field in ("start_number", "contacts_per_file"):
+        try:
+            settings[field] = int(value)
+        except ValueError:
+            await update.message.reply_text("Please enter a valid integer.")
+            return SET_EDIT
+    elif field == "group_name":
+        settings[field] = "" if value == "-" else value
+    elif field == "vcf_name":
+        settings[field] = re.sub(r"[^a-zA-Z0-9]", "", value) or settings[field]
+    else:
+        settings[field] = value
+
+    await update.message.reply_text(
+        settings_text(settings),
+        parse_mode="Markdown",
+        reply_markup=settings_keyboard(),
+    )
+    return SET_MENU
+
+
+# ══════════════════════════════════════════════
+# ── RESET ──
+# ══════════════════════════════════════════════
+async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["settings"] = dict(DEFAULT_SETTINGS)
+    context.user_data.pop("_temp", None)
+    await query.edit_message_text(
+        "🔄 *Settings reset to defaults!*\n\n"
+        f"📁 VCF Name: `{DEFAULT_SETTINGS['vcf_name']}`\n"
+        f"👤 Contact Name: `{DEFAULT_SETTINGS['contact_name']}`\n"
+        f"🔢 Start Number: `{DEFAULT_SETTINGS['start_number']}`\n"
+        f"📦 Per File: `{DEFAULT_SETTINGS['contacts_per_file']}`\n"
+        f"🏷 Group Name: `(none)`",
+        parse_mode="Markdown",
+    )
+
+
+# ══════════════════════════════════════════════
+# ── MENU DISPATCHER ──
+# ══════════════════════════════════════════════
+async def menu_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dispatch inline button presses from the /start main menu."""
+    query = update.callback_query
+    data = query.data
+
+    if data == "menu_help":
+        await help_handler(update, context)
+    elif data == "menu_reset":
+        await reset_handler(update, context)
+    # Other menu_ callbacks are handled by ConversationHandlers
+
+
+# ══════════════════════════════════════════════
+# ── APPLICATION SETUP ──
+# ══════════════════════════════════════════════
+def build_application() -> Application:
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # ── /start & /help ──
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_handler))
+
+    # ── File Analysis ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(analysis_start, pattern="^menu_analysis$")],
+            states={
+                FA_UPLOAD: [MessageHandler(filters.Document.ALL, analysis_receive)],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── File Converter ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(converter_start, pattern="^menu_converter$")],
+            states={
+                FC_UPLOAD: [MessageHandler(filters.Document.ALL, converter_receive_file)],
+                FC_FORMAT: [CallbackQueryHandler(converter_do_convert, pattern="^conv_")],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Quick VCF ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(quickvcf_start, pattern="^menu_quickvcf$")],
+            states={
+                QV_FILE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, quickvcf_file_name)],
+                QV_CONTACT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, quickvcf_contact_name)],
+                QV_NUMBERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, quickvcf_numbers)],
+                QV_MORE: [
+                    CallbackQueryHandler(quickvcf_more, pattern="^qv_more$"),
+                    CallbackQueryHandler(quickvcf_finish, pattern="^qv_finish$"),
+                ],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── VCF Maker ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(vcfmaker_start, pattern="^menu_vcfmaker$")],
+            states={
+                VM_UPLOAD: [MessageHandler(filters.Document.ALL, vcfmaker_upload)],
+                VM_CHOOSE_FORMAT: [CallbackQueryHandler(vcfmaker_format, pattern="^vmfmt_")],
+                VM_VCF_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, vcfmaker_vcf_name)],
+                VM_CONTACT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, vcfmaker_contact_name)],
+                VM_START_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, vcfmaker_start_number)],
+                VM_CONTACTS_PER_FILE: [MessageHandler(filters.TEXT & ~filters.COMMAND, vcfmaker_per_file)],
+                VM_GROUP_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, vcfmaker_group_name_text),
+                    CallbackQueryHandler(vcfmaker_group_name_skip, pattern="^vm_skip_group$"),
+                ],
+                VM_CONFIRM: [CallbackQueryHandler(vcfmaker_generate, pattern="^vm_generate$")],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Split File ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(split_start, pattern="^menu_split$")],
+            states={
+                SF_UPLOAD: [MessageHandler(filters.Document.ALL, split_upload)],
+                SF_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, split_count)],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Merge Files ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(merge_start, pattern="^menu_merge$")],
+            states={
+                MF_COLLECTING: [
+                    MessageHandler(filters.Document.ALL, merge_collect),
+                    CallbackQueryHandler(merge_done, pattern="^merge_done$"),
+                ],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── File Editor ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(editor_start, pattern="^menu_editor$")],
+            states={
+                FE_UPLOAD: [MessageHandler(filters.Document.ALL, editor_upload)],
+                FE_VIEW: [
+                    CallbackQueryHandler(editor_page, pattern=r"^fe_page_\d+$"),
+                    CallbackQueryHandler(editor_select, pattern=r"^fe_sel_\d+$"),
+                    CallbackQueryHandler(editor_add_start, pattern="^fe_add$"),
+                    CallbackQueryHandler(editor_save, pattern="^fe_save$"),
+                ],
+                FE_ACTION: [
+                    CallbackQueryHandler(editor_edit, pattern=r"^fe_edit_\d+$"),
+                    CallbackQueryHandler(editor_remove, pattern=r"^fe_rem_\d+$"),
+                    CallbackQueryHandler(editor_back_list, pattern="^fe_back_list$"),
+                ],
+                FE_EDIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_edit_name)],
+                FE_EDIT_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_edit_phone)],
+                FE_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_add_name)],
+                FE_ADD_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, editor_add_phone)],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── List Maker ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(listmaker_start, pattern="^menu_listmaker$")],
+            states={
+                LM_COLLECTING: [
+                    MessageHandler(filters.PHOTO | filters.Document.IMAGE, listmaker_collect),
+                    CallbackQueryHandler(listmaker_done, pattern="^lm_done$"),
+                ],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Rename File ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(renamefile_start, pattern="^menu_renamefile$")],
+            states={
+                RF_UPLOAD: [MessageHandler(filters.Document.ALL, renamefile_upload)],
+                RF_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, renamefile_name)],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Rename Contact ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(renamecontact_start, pattern="^menu_renamecontact$")],
+            states={
+                RC_UPLOAD: [MessageHandler(filters.Document.ALL, renamecontact_upload)],
+                RC_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, renamecontact_name)],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Settings ──
+    app.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(settings_menu, pattern="^menu_settings$")],
+            states={
+                SET_MENU: [CallbackQueryHandler(settings_edit, pattern="^set_")],
+                SET_EDIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, settings_save)],
+            },
+            fallbacks=[CallbackQueryHandler(cancel, pattern="^cancel$")],
+            per_message=False,
+        )
+    )
+
+    # ── Global menu dispatchers (help, reset) ──
+    app.add_handler(CallbackQueryHandler(help_handler, pattern="^menu_help$"))
+    app.add_handler(CallbackQueryHandler(reset_handler, pattern="^menu_reset$"))
+
+    # ── Noop (pagination label button) ──
+    app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
+
+    return app
+
+
+# ──────────────────────────────────────────────
+# ENTRY POINT
+# ──────────────────────────────────────────────
+if __name__ == "__main__":
+    app = build_application()
+    logger.info("Bot is starting…")
+    app.run_polling(drop_pending_updates=True)
