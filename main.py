@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""
-📱 VCF Master Bot — Production-Ready Telegram Bot (ReplyKeyboard Edition)
-A fully async bot built with python-telegram-bot v20+
-Features: File Analysis, Converter, VCF Maker, Split, Merge, Edit, Rename, and more.
-ALL menus use ReplyKeyboardMarkup (native Telegram keyboard buttons).
-"""
-
 import os
 import io
 import csv
@@ -43,7 +35,7 @@ from telegram.constants import ParseMode
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "7727685861:AAGrMehK3GiBK2cR_WO1z4IrwJqJcFUtxfs"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
