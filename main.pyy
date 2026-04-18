@@ -59,7 +59,6 @@ BTN_VM    = "🛠 VCF Maker"
 BTN_SF    = "✂️ Split File"
 BTN_MF    = "🔗 Merge Files"
 BTN_FE    = "✏️ File Editor"
-BTN_LM    = "📋 List Maker"
 BTN_RF    = "📝 Rename File"
 BTN_RC    = "👤 Rename Contact"
 BTN_ST    = "⚙️ Settings"
@@ -71,7 +70,7 @@ BTN_DONE  = "✅ Done"
 
 MENU_PATTERN = (
     r"^(📊 File Analysis|🔄 File Converter|⚡ Quick VCF|🛠 VCF Maker|"
-    r"✂️ Split File|🔗 Merge Files|✏️ File Editor|📋 List Maker|"
+    r"✂️ Split File|🔗 Merge Files|✏️ File Editor|"
     r"📝 Rename File|👤 Rename Contact|⚙️ Settings|🔄 Reset|❓ Help)$"
 )
 
