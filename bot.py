@@ -1,35 +1,3 @@
-# =============================================================================
-# TELEGRAM VCF CONTACT BOT — REPLY KEYBOARD EDITION
-# =============================================================================
-#
-# SETUP INSTRUCTIONS:
-# -------------------
-# 1. Install Python 3.10+ and pip
-# 2. Install Tesseract OCR (optional, for List Maker OCR):
-#      Ubuntu/Debian: sudo apt-get install tesseract-ocr
-#      macOS:         brew install tesseract
-#      Windows:       Download from https://github.com/UB-Mannheim/tesseract/wiki
-#                     Add to PATH or set pytesseract.pytesseract.tesseract_cmd
-# 3. Install Python dependencies:
-#      pip install python-telegram-bot phonenumbers openpyxl vobject pytesseract Pillow
-# 4. Set your bot token:
-#      export BOT_TOKEN="YOUR_TELEGRAM_BOT_TOKEN_HERE"
-#      OR edit BOT_TOKEN variable below.
-# 5. Run:
-#      python bot.py
-#
-# requirements.txt:
-# -----------------
-# python-telegram-bot==21.5
-# phonenumbers==8.13.43
-# openpyxl==3.1.5
-# pytesseract==0.3.13
-# Pillow==10.4.0
-# vobject==0.9.6.1
-# httpx==0.27.2
-#
-# =============================================================================
-
 import os
 import re
 import io
