@@ -32,7 +32,7 @@ from telegram.ext import (
 # CONFIGURATION
 # =============================================================================
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+BOT_TOKEN = "8247588556:AAGgTKtILWZL6mTQEvLAziJmrbAkRTUPA0E"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
