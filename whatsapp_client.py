@@ -1,19 +1,3 @@
-"""
-whatsapp_client.py
-==================
-Async Python wrapper for WhatsApp Web connectivity via a Node.js Baileys bridge.
-
-Architecture:
-  - A Node.js server runs Baileys (WhatsApp Web library) and exposes REST API endpoints.
-  - This file is an async HTTP client (aiohttp) that calls those endpoints.
-  - Each WhatsApp account is identified by a unique session_id.
-
-Usage:
-    async with WhatsAppClient() as client:
-        qr = await client.connect_via_qr("session-001")
-        status = await client.get_connection_status("session-001")
-"""
-
 import asyncio
 import base64
 import logging
