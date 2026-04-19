@@ -1,22 +1,3 @@
-# 🤖 IPL Challenge Bot V2 - Ultimate Edition
-# ============================================================
-# Render/Railway Compatible | Python 3.11 | Async SQLite
-# ============================================================
-#
-# REQUIREMENTS (paste in requirements.txt):
-#   python-telegram-bot[job-queue]==20.7
-#   aiosqlite
-#   nest_asyncio
-#   httpx
-#
-# SETUP:
-#   1. Get Bot Token from @BotFather on Telegram
-#   2. Get your Telegram ID via /id command
-#   3. (Optional) Get free Cricket API key from https://cricketdata.org
-#   4. Fill BOT_TOKEN, OWNER_ID, CRICKET_API_KEY below
-#   5. Deploy on Render as a Worker service
-# ============================================================
-
 import asyncio
 import logging
 import random
