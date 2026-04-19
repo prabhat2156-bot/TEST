@@ -1,15 +1,3 @@
-"""
-models_and_utils.py
-
-Combined database models and utility helpers for the
-Telegram-based WhatsApp Group Management Bot.
-
-Dependencies:
-    pip install aiosqlite aiofiles phonenumbers
-"""
-
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
