@@ -1,36 +1,3 @@
-# 🤖 IPL Challenge Bot V2 - Bug Fixed
-# ============================================================
-# Render/Railway Compatible | Python 3.11 | Async SQLite
-# ============================================================
-#
-# REQUIREMENTS (paste in requirements.txt):
-#   python-telegram-bot[job-queue]==20.7
-#   aiosqlite
-#   nest_asyncio
-#   httpx
-#
-# SETUP:
-#   1. Get Bot Token from @BotFather on Telegram
-#   2. Get your Telegram ID via /id command
-#   3. (Optional) Get free Cricket API key from https://cricketdata.org
-#   4. Fill BOT_TOKEN, OWNER_ID, CRICKET_API_KEY below
-#   5. Deploy on Render as a Worker service
-# ============================================================
-#
-# BUG FIXES APPLIED:
-#   [FIX 1] callback_accept: Removed broken `update_challenge(ch_id, creator_accepted=1)`
-#           — creator_accepted column does NOT exist in challenges table.
-#           Settings table approach already handles this correctly.
-#   [FIX 2] Removed dead variable `accepted_field = "creator_accepted"` (unused).
-#   [FIX 3] callback_accept: opponent_id=0 ke case mein username fallback check added
-#           — agar username match karta hai toh accept allow karo, otherwise block.
-#   [FIX 4] cmd_cancel: @owner_only decorator hataya. Ab function andar
-#           permission check hota hai — owner koi bhi cancel kar sakta hai,
-#           creator sirf pending challenge cancel kar sakta hai.
-#   [FIX 5] All database operations wrapped in try/except — raw OperationalError
-#           ab user tak nahi pahunchega.
-# ============================================================
-
 import asyncio
 import logging
 import random
