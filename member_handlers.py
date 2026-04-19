@@ -1,8 +1,3 @@
-# member_handlers.py
-# Telegram Bot — Member Management Handlers
-# Features: CTC Checker, Remove Members, Add Members
-# Library: python-telegram-bot v20+ (async)
-
 import asyncio
 import io
 import logging
