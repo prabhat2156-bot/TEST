@@ -1,0 +1,1584 @@
+# 📋 WhatsApp Group Management Bot — Complete Feature Workflow
+### Product Requirements Document (PRD) | Version 1.0
+
+> **Language Note:** Yeh document Hinglish mein likha gaya hai — Hindi + English mix — taaki bot ke natural responses aur user flows clearly samajh aayein.
+
+---
+
+---
+
+## 📌 OVERVIEW
+
+**Bot Purpose:** Ek Telegram-based automation bot jo multiple WhatsApp accounts se group management karta hai — groups create karna, members add/remove karna, links fetch karna, aur bahut kuch.
+
+**Target Users:** WhatsApp marketers, community managers, aur bulk group operators.
+
+**Core Principle:** Ek hi bot se multiple WhatsApp accounts manage karo, sab kuch step-by-step guided flow ke through.
+
+---
+
+---
+
+## 🚀 BOT START — MAIN MENU
+
+**Trigger:** User sends `/start` command to the bot.
+
+**Bot Response:**
+```
+👋 WhatsApp Group Manager Bot mein aapka swagat hai!
+
+Apna kaam select karein:
+```
+
+**Button Layout (2×2 Grid):**
+```
+[ 📱 Connect WhatsApp ]   [ 🔌 Disconnect WhatsApp ]
+[ 👤 Connected Account ]  [ ❓ Help ]
+```
+
+---
+
+---
+
+## 📱 SECTION 1 — CONNECT WHATSAPP
+
+### 1.1 Connection Method Selection
+
+**Trigger:** User clicks `[ 📱 Connect WhatsApp ]`
+
+**Bot Response:**
+```
+🔗 WhatsApp connect karne ka tarika chunein:
+```
+
+**Button Layout:**
+```
+[ 📞 Phone Number se Connect ]
+[ 📷 QR Code se Connect ]
+[ 🔙 Back ]
+```
+
+---
+
+### 1.2A — Phone Number se Connect
+
+**Step 1:** User clicks `[ 📞 Phone Number se Connect ]`
+
+**Bot Response:**
+```
+📞 Apna WhatsApp number bhejein (country code ke saath):
+Example: +919876543210
+
+Note: Aapko WhatsApp par OTP aayega.
+```
+
+**Step 2:** User sends phone number.
+
+**Bot Response:**
+```
+⏳ OTP bheja ja raha hai... please wait.
+```
+
+**Step 3:** OTP arrives.
+
+**Bot Response:**
+```
+✅ OTP bheja gaya!
+
+Apna OTP enter karein:
+(Format: 123-456 ya 123456)
+```
+
+**Step 4:** User sends OTP.
+
+**Bot Response (Success):**
+```
+🎉 WhatsApp successfully connect ho gaya!
+
+📱 Account: +919876543210
+✅ Status: Connected
+🕐 Connected At: [Timestamp]
+```
+
+**Step 5:** Auto-return to Main Menu with button layout.
+
+---
+
+### 1.2B — QR Code se Connect
+
+**Step 1:** User clicks `[ 📷 QR Code se Connect ]`
+
+**Bot Response:**
+```
+📷 QR Code generate ho raha hai... please wait.
+```
+
+**Step 2:** Bot sends QR code image.
+
+**Bot Response:**
+```
+📲 Yeh QR Code scan karein:
+
+[QR CODE IMAGE]
+
+Steps:
+1. WhatsApp open karein
+2. Settings → Linked Devices → Link a Device
+3. Yeh QR Code scan karein
+
+⏳ QR Code 60 seconds mein expire ho jaayega.
+```
+
+**Button Layout:**
+```
+[ 🔄 Naya QR Code Generate Karein ]
+[ 🔙 Back ]
+```
+
+**Step 3 (Success):**
+```
+🎉 WhatsApp successfully connect ho gaya!
+
+📱 Account: +919876543210
+✅ Status: Connected
+🕐 Connected At: [Timestamp]
+```
+
+---
+
+### 1.3 — Multiple Accounts Support
+
+> ⚡ **Feature Note:** Bot unlimited WhatsApp accounts connect kar sakta hai. Koi limit nahi.
+
+Jab multiple accounts connected hon, har action ke pehle bot poochega:
+
+**Bot Response:**
+```
+🔢 Kaunse WhatsApp account se kaam karna hai?
+
+Connected Accounts:
+1️⃣ +919876543210 — Active ✅
+2️⃣ +918765432109 — Active ✅
+3️⃣ +917654321098 — Active ✅
+
+Account number bhejein ya sabke liye 'All' likhein.
+```
+
+**Button Layout:**
+```
+[ 1️⃣ Account 1 ]  [ 2️⃣ Account 2 ]
+[ 3️⃣ Account 3 ]  [ 🌐 All Accounts ]
+[ 🔙 Back ]
+```
+
+---
+
+### ⚠️ Edge Cases — Connect WhatsApp
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Wrong OTP | `❌ Galat OTP. Dobara try karein ya naya OTP mangaein.` |
+| OTP Expired | `⏰ OTP expire ho gaya. [🔄 Naya OTP Mangaein]` |
+| QR Expired | `⏰ QR Code expire ho gaya. [🔄 Naya QR Code]` |
+| Number already connected | `⚠️ Yeh number pehle se connected hai! Status check karein.` |
+| Connection failed | `❌ Connection fail hua. Check karein ki WhatsApp properly open hai.` |
+
+---
+
+---
+
+## 🔌 SECTION 2 — DISCONNECT WHATSAPP
+
+**Trigger:** User clicks `[ 🔌 Disconnect WhatsApp ]`
+
+**Bot Response:**
+```
+🔌 Kaunsa account disconnect karna hai?
+
+Connected Accounts:
+1️⃣ +919876543210 — Active ✅
+2️⃣ +918765432109 — Active ✅
+```
+
+**Button Layout:**
+```
+[ 1️⃣ +919876543210 ]
+[ 2️⃣ +918765432109 ]
+[ 🔴 Sab Disconnect Karein ]
+[ 🔙 Back ]
+```
+
+**Confirmation Prompt:**
+```
+⚠️ Aap +919876543210 disconnect karne wale hain.
+
+Kya aap sure hain?
+```
+
+**Buttons:**
+```
+[ ✅ Haan, Disconnect Karein ]   [ ❌ Cancel ]
+```
+
+**Success Response:**
+```
+✅ +919876543210 successfully disconnect ho gaya.
+```
+
+---
+
+---
+
+## 👤 SECTION 3 — CONNECTED ACCOUNT
+
+**Trigger:** User clicks `[ 👤 Connected Account ]`
+
+**Bot Response:**
+```
+📊 Connected WhatsApp Accounts:
+
+━━━━━━━━━━━━━━━━━━━━
+1️⃣ Account 1
+📱 Number: +919876543210
+✅ Status: Connected & Active
+🕐 Since: 18 Apr 2026, 10:30 AM
+👥 Groups: 45 groups
+━━━━━━━━━━━━━━━━━━━━
+2️⃣ Account 2
+📱 Number: +918765432109
+✅ Status: Connected & Active
+🕐 Since: 17 Apr 2026, 02:15 PM
+👥 Groups: 32 groups
+━━━━━━━━━━━━━━━━━━━━
+
+Total Connected: 2 accounts
+```
+
+**Button Layout:**
+```
+[ ➕ Naya Account Connect Karein ]
+[ 🔙 Main Menu ]
+```
+
+---
+
+---
+
+## ❓ SECTION 4 — HELP
+
+**Trigger:** User clicks `[ ❓ Help ]`
+
+**Bot Response:**
+```
+❓ WhatsApp Group Manager Bot — Help Guide
+
+🔹 Connect WhatsApp → Account link karo
+🔹 Create Group → Bulk groups banao
+🔹 Join Groups → Links se groups join karo
+🔹 CTC Checker → Unknown members dhundho
+🔹 Get Link → Group invite links nikalo
+🔹 Leave Groups → Groups se nikal jao
+🔹 Remove Members → Members hatao
+🔹 Make/Remove Admin → Admin rights manage karo
+🔹 Approval Setting → Join approval toggle karo
+🔹 Get Pending List → Pending requests dekho
+🔹 Add Members → Members add karo
+
+📞 Support: @YourSupportHandle
+```
+
+---
+
+---
+
+## 🛠️ SECTION 5 — FEATURE MENU
+
+> Yeh menu tab dikhta hai jab kam se kam ek WhatsApp account connected ho.
+
+**Trigger:** Connected account select karne ke baad ya main features section access karne par.
+
+**Bot Response:**
+```
+⚙️ Kya karna hai aaj?
+```
+
+**Button Layout (2×2 Grid):**
+```
+[ ➕ Create Group ]        [ 🔗 Join Groups ]
+[ 🔍 CTC Checker ]        [ 📎 Get Link ]
+[ 🚪 Leave Groups ]        [ 🗑️ Remove Members ]
+[ 👑 Make/Remove Admin ]   [ ✅ Approval Setting ]
+[ 📋 Get Pending List ]    [ 👥 Add Members ]
+[ 🔙 Main Menu ]
+```
+
+---
+
+---
+
+## ➕ FEATURE 1 — CREATE GROUP
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Group Name**
+
+**Trigger:** User clicks `[ ➕ Create Group ]`
+
+**Bot Response:**
+```
+📝 Group ka naam batao:
+
+(Agar multiple groups bana rahe ho toh base name likhein.
+Example: "Sales Team" → Groups banengi: Sales Team 1, Sales Team 2...)
+```
+
+**User Action:** Types group name, e.g., `Sales Team`
+
+---
+
+**Step 2 — Profile Photo**
+
+**Bot Response:**
+```
+🖼️ Group ke liye Profile Photo bhejo:
+
+(Optional hai — skip kar sakte ho)
+```
+
+**Button Layout:**
+```
+[ ⏭️ Skip — Photo Nahi Chahiye ]
+```
+
+**User Action:** Sends photo OR clicks Skip.
+
+---
+
+**Step 3 — Disappearing Messages**
+
+**Bot Response:**
+```
+⏳ Disappearing Messages setting chunein:
+
+(Optional — default OFF rehta hai)
+```
+
+**Button Layout:**
+```
+[ 🔕 Off (Default) ]
+[ ⏱️ 24 Hours ]
+[ 📅 7 Days ]
+[ 🗓️ 90 Days ]
+[ ⏭️ Skip ]
+```
+
+---
+
+**Step 4 — Group Permissions**
+
+**Bot Response:**
+```
+🔐 Group Permissions set karein:
+(Ek ek karke toggle ON/OFF karein)
+
+━━━━━━━━━━━━━━━━━━━━
+```
+
+**Button Layout (Inline Toggle — ON/OFF per permission):**
+```
+[ ✅ Messages Send: Everyone ]
+[ ✅ Group Info Edit: Admins Only ]
+[ ✅ Members Add: Everyone ]
+[ ✅ New Members Approve: OFF ]
+[ ✅ Video Call: Everyone ]
+[ ✅ Voice Call: Everyone ]
+[ ✅ Media Share: Everyone ]
+[ ✅ Polls Create: Everyone ]
+[ ✅ Admin Approval for Join Link: OFF ]
+
+[ 💾 Permissions Save Karein ]
+```
+
+> 📌 **Permission Options Details:**
+
+| Permission | Options Available |
+|------------|------------------|
+| Messages Send karna | Everyone / Admins Only |
+| Group Info Edit karna | Everyone / Admins Only |
+| Members Add karna | Everyone / Admins Only |
+| New Members Approve | On / Off |
+| Admin Join Link Approve | On / Off |
+| Media Share karna | Everyone / Admins Only |
+| Polls Create karna | Everyone / Admins Only |
+| Video/Voice Calls | Everyone / Admins Only |
+
+User click karta hai aur toggle hota hai:
+```
+[ ✅ Messages Send: Everyone ] → click → [ 🔒 Messages Send: Admins Only ]
+```
+
+---
+
+**Step 5 — Members Add (Optional)**
+
+**Bot Response:**
+```
+👥 Kya group creation ke time members add karne hain?
+```
+
+**Button Layout:**
+```
+[ ✅ Haan, Numbers Bhejta Hoon ]
+[ ⏭️ Skip — Baad Mein Add Karunga ]
+```
+
+**If Yes — Bot Response:**
+```
+📤 Numbers bhejo (.vcf file ya plain text mein):
+
+Format (plain text):
++919876543210
++918765432109
+...
+```
+
+---
+
+**Step 6 — Numbering Start Point**
+
+**Bot Response:**
+```
+🔢 Numbering kaha se start kare?
+
+Example:
+• 1 → Groups banengi: Sales Team 1, Sales Team 2...
+• 51 → Groups banengi: Sales Team 51, Sales Team 52...
+
+Number bhejo:
+```
+
+**User Action:** Types `1` or `51` etc.
+
+---
+
+**Step 7 — Number of Groups**
+
+**Bot Response:**
+```
+📊 Kitne groups create karne hain?
+
+Number bhejo (e.g., 10, 50, 100):
+```
+
+**User Action:** Types quantity, e.g., `10`
+
+---
+
+**Step 8 — Confirmation Summary**
+
+**Bot Response:**
+```
+📋 Confirmation — Yeh details sahi hain?
+
+━━━━━━━━━━━━━━━━━━━━
+📝 Base Name: Sales Team
+🔢 Numbering: 1 se
+📊 Groups Count: 10
+🖼️ Profile Photo: Uploaded ✅
+⏳ Disappearing: 7 Days
+🔐 Messages: Admins Only
+🔐 Members Add: Everyone
+✅ Approve New: OFF
+━━━━━━━━━━━━━━━━━━━━
+
+Groups banengi:
+Sales Team 1 ... Sales Team 10
+```
+
+**Button Layout:**
+```
+[ ✅ Haan, Create Karein! ]   [ ✏️ Edit Karein ]   [ ❌ Cancel ]
+```
+
+---
+
+**Step 9 — Group Creation Progress**
+
+**Bot Response (Live Progress):**
+```
+⚙️ Groups create ho rahe hain...
+
+✅ Sales Team 1 — Created
+✅ Sales Team 2 — Created
+✅ Sales Team 3 — Created
+⏳ Sales Team 4 — Creating...
+⬜ Sales Team 5-10 — Pending
+
+Progress: 3/10 ██████░░░░ 30%
+```
+
+---
+
+**Step 10 — Completion**
+
+**Bot Response:**
+```
+🎉 Sabhi groups successfully create ho gaye!
+
+━━━━━━━━━━━━━━━━━━━━
+✅ Sales Team 1 — Done
+✅ Sales Team 2 — Done
+✅ Sales Team 3 — Done
+...
+✅ Sales Team 10 — Done
+━━━━━━━━━━━━━━━━━━━━
+
+Total Created: 10/10 ✅
+```
+
+---
+
+### ⚠️ Edge Cases — Create Group
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Name 25 chars se zyada | `❌ Group name 25 characters se zyada nahi ho sakta.` |
+| Invalid photo format | `❌ Sirf JPG/PNG format accept hai.` |
+| Creation fail (rate limit) | `⚠️ WhatsApp rate limit hit. 30 seconds baad retry karunga...` |
+| Partial failure | `⚠️ 7/10 groups create hue. 3 fail — [Retry Failed Groups]` |
+
+---
+
+---
+
+## 🔗 FEATURE 2 — JOIN GROUPS
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Trigger**
+
+**Trigger:** User clicks `[ 🔗 Join Groups ]`
+
+**Bot Response:**
+```
+🔗 Group invite link(s) bhejo:
+
+• Ek link ya multiple links supported hain
+• Har link alag line mein bhejo
+
+Example:
+https://chat.whatsapp.com/AbcXyz123
+https://chat.whatsapp.com/DefPqr456
+```
+
+---
+
+**Step 2 — Link Receipt**
+
+**User Action:** Sends multiple links.
+
+**Bot Response:**
+```
+📋 Mujhe yeh links mile:
+
+1. https://chat.whatsapp.com/AbcXyz123
+2. https://chat.whatsapp.com/DefPqr456
+3. https://chat.whatsapp.com/GhiRst789
+
+Total: 3 links
+
+Kya join karna start karein?
+```
+
+**Button Layout:**
+```
+[ ✅ Haan, Join Karein! ]   [ ❌ Cancel ]
+```
+
+---
+
+**Step 3 — Joining Progress**
+
+**Bot Response (Live):**
+```
+🔗 Groups join ho rahe hain...
+
+✅ 1/3 — https://chat.whatsapp.com/AbcXyz123 → Joined!
+✅ 2/3 — https://chat.whatsapp.com/DefPqr456 → Joined!
+⏳ 3/3 — https://chat.whatsapp.com/GhiRst789 → Joining...
+
+Progress: ██████████ 66%
+```
+
+---
+
+**Step 4 — Completion**
+
+**Bot Response:**
+```
+🎉 Groups join complete!
+
+━━━━━━━━━━━━━━━━━━━━
+✅ Group Alpha — Joined
+✅ Group Beta — Joined
+✅ Group Gamma — Joined
+━━━━━━━━━━━━━━━━━━━━
+Total Joined: 3/3 ✅
+```
+
+---
+
+### ⚠️ Edge Cases — Join Groups
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Invalid link | `❌ Link invalid hai: [link]. Skip karein ya fix karein.` |
+| Already a member | `ℹ️ Aap pehle se is group mein hain — Skip.` |
+| Link expired | `⏰ Yeh link expire ho gaya hai. New link lein.` |
+| Group full | `⚠️ Group full hai. Join nahi ho saka.` |
+| Banned from group | `🚫 Aapko is group mein join karne ki permission nahi.` |
+
+---
+
+---
+
+## 🔍 FEATURE 3 — CTC CHECKER (Contact Checker)
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Mode Selection**
+
+**Trigger:** User clicks `[ 🔍 CTC Checker ]`
+
+**Bot Response:**
+```
+🔍 CTC Checker — Kya check karna hai?
+```
+
+**Button Layout:**
+```
+[ ⏳ Pending Requests Check Karein ]
+[ 👥 Members Check Karein ]
+[ 🔙 Back ]
+```
+
+---
+
+### 3A — Check Pending Requests
+
+**Step 1:** User clicks `[ ⏳ Pending Requests Check Karein ]`
+
+**Bot Response:**
+```
+🔗 Group link(s) bhejo jinke pending requests check karne hain:
+
+(Multiple links supported — ek line mein ek link)
+```
+
+**Step 2:** User sends links.
+
+**Step 3:** Bot Response:
+```
+📋 Checking pending requests...
+
+━━━━━━━━━━━━━━━━━━━━
+Group Alpha → 12 pending
+Group Beta → 5 pending
+Group Gamma → 0 pending
+━━━━━━━━━━━━━━━━━━━━
+Total Pending: 17 requests
+```
+
+---
+
+### 3B — Check Members (Against VCF File)
+
+**Step 1:** User clicks `[ 👥 Members Check Karein ]`
+
+**Step 2:** Bot Response:
+```
+🔗 Group link(s) bhejo jinke members check karne hain:
+
+(Multiple links supported)
+```
+
+**Step 3:** User sends group links.
+
+**Step 4:** Bot Response:
+```
+📁 Ab apni contact file bhejo (.vcf format):
+
+Yeh file woh numbers honi chahiye jo "known/safe" hain.
+Bot compare karega — jo numbers file mein NAHI hain → Unknown mark karega.
+```
+
+**Step 5:** User sends VCF file.
+
+**Step 6:** Bot Response (Processing):
+```
+🔍 Members check ho rahe hain...
+
+Group Alpha:
+✅ +919876543210 — Found in VCF
+✅ +918765432109 — Found in VCF
+❓ +917654321098 — NOT in VCF → Unknown!
+✅ +916543210987 — Found in VCF
+
+Progress: Group 1/3 ██████░░░░
+```
+
+**Step 7 — Unknown Members Found:**
+```
+⚠️ Unknown Members Mile!
+
+━━━━━━━━━━━━━━━━━━━━
+Group Alpha:
+  ❓ +917654321098
+  ❓ +915432109876
+
+Group Beta:
+  ❓ +914321098765
+
+Total Unknown: 3 numbers
+━━━━━━━━━━━━━━━━━━━━
+
+Kya karna chahte ho?
+```
+
+**Button Layout:**
+```
+[ 🗑️ Sabko Remove Karein (All Groups) ]
+[ 🎯 Select Groups se Remove Karein ]
+[ 📋 List Export Karein ]
+[ ❌ Kuch Nahi Karna ]
+```
+
+---
+
+**Step 8A — All Groups Remove:**
+
+**Bot Response:**
+```
+⚠️ Confirm: Sabhi unknown members ko ALL groups se remove karna hai?
+
+Total: 3 numbers, across 2 groups.
+```
+
+**Buttons:**
+```
+[ ✅ Haan, Remove Karein ]   [ ❌ Cancel ]
+```
+
+**Progress:**
+```
+🗑️ Removing unknown members...
+
+Group Alpha:
+  🗑️ +917654321098 — Removed ✅
+  🗑️ +915432109876 — Removed ✅
+
+Group Beta:
+  🗑️ +914321098765 — Removed ✅
+
+━━━━━━━━━━━━━━━━━━━━
+Total Removed: 3/3 ✅
+```
+
+---
+
+**Step 8B — Select Groups Remove:**
+
+**Bot Response:**
+```
+📋 Kaunse groups se remove karna hai? Number bhejo:
+
+1. Group Alpha (2 unknown)
+2. Group Beta (1 unknown)
+
+Numbers bhejo separated by comma (e.g., 1,2)
+Ya "All" likhein sabke liye.
+```
+
+**User Action:** Types `1` or `1,2` or `All`
+
+**Bot removes one by one from selected groups.**
+
+---
+
+### ⚠️ Edge Cases — CTC Checker
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Invalid VCF file | `❌ File format galat hai. Sirf .vcf file bhejo.` |
+| Empty VCF | `⚠️ VCF file mein koi contact nahi hai.` |
+| Not admin in group | `⚠️ Group Alpha: Aap admin nahi hain — remove nahi ho sakta.` |
+| Number already left group | `ℹ️ +91xxxx pehle se group mein nahi — Skip.` |
+
+---
+
+---
+
+## 📎 FEATURE 4 — GET LINK
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Scope Selection**
+
+**Trigger:** User clicks `[ 📎 Get Link ]`
+
+**Bot Response:**
+```
+🔗 Kis groups ke links chahiye?
+```
+
+**Button Layout:**
+```
+[ 🌐 All Groups ke Links ]
+[ 🎯 Select Groups ke Links ]
+[ 🔙 Back ]
+```
+
+---
+
+**Step 2A — All Groups:**
+
+**Bot Response:**
+```
+⏳ Sabhi groups ke links fetch ho rahe hain...
+```
+
+**Output:**
+```
+📎 Group Invite Links:
+
+━━━━━━━━━━━━━━━━━━━━
+1. Sales Team 1 — https://chat.whatsapp.com/Abc123
+2. Sales Team 2 — https://chat.whatsapp.com/Def456
+3. Sales Team 3 — https://chat.whatsapp.com/Ghi789
+...
+━━━━━━━━━━━━━━━━━━━━
+Total: 45 links
+```
+
+---
+
+**Step 2B — Select Groups:**
+
+**Bot Response:**
+```
+📋 Group list:
+
+1. Sales Team 1 (45 members)
+2. Sales Team 2 (38 members)
+3. Marketing Group A (50 members)
+...
+
+Kaunse groups? Numbers bhejo (comma separated):
+Example: 1,3,5
+```
+
+**User Action:** Types `1,3,5`
+
+**Bot Response:**
+```
+📎 Selected Groups ke Links:
+
+━━━━━━━━━━━━━━━━━━━━
+1. Sales Team 1 — https://chat.whatsapp.com/Abc123
+3. Marketing Group A — https://chat.whatsapp.com/Ghi789
+5. Sales Team 5 — https://chat.whatsapp.com/Pqr321
+━━━━━━━━━━━━━━━━━━━━
+Total: 3 links
+```
+
+---
+
+### ⚠️ Edge Cases — Get Link
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Not admin (can't generate link) | `⚠️ Group Alpha: Admin nahi hain, link nahi mil sakta.` |
+| Link already revoked | `🔄 Naya link generate kiya gaya hai.` |
+| No groups connected | `❌ Koi group connected nahi hai is account se.` |
+
+---
+
+---
+
+## 🚪 FEATURE 5 — LEAVE GROUPS
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Scope Selection**
+
+**Trigger:** User clicks `[ 🚪 Leave Groups ]`
+
+**Bot Response:**
+```
+🚪 Kaunse groups leave karne hain?
+```
+
+**Button Layout:**
+```
+[ 🌐 Sabhi Groups Leave Karein ]
+[ 🎯 Select Groups Leave Karein ]
+[ 🔙 Back ]
+```
+
+---
+
+**Step 2A — Leave All Groups:**
+
+**Confirmation:**
+```
+⚠️ Aap sabhi WhatsApp groups (45 groups) leave karne wale hain.
+
+Yeh action undo nahi ho sakta.
+Kya aap 100% sure hain?
+```
+
+**Button Layout:**
+```
+[ ✅ Haan, Sabhi Leave Karein ]   [ ❌ Nahi, Cancel ]
+```
+
+---
+
+**Step 2B — Select Groups:**
+
+**Bot Response:**
+```
+📋 Group list select karein:
+
+1. Sales Team 1 (45 members)
+2. Sales Team 2 (38 members)
+...
+
+Numbers bhejo (comma separated) ya "All":
+```
+
+**Confirmation:**
+```
+⚠️ Aap 3 groups leave karne wale hain:
+• Sales Team 1
+• Sales Team 3
+• Marketing Group A
+
+Confirm?
+```
+
+**Buttons:**
+```
+[ ✅ Haan, Leave Karein ]   [ ❌ Cancel ]
+```
+
+---
+
+**Step 3 — Progress:**
+```
+🚪 Groups leave ho rahe hain...
+
+✅ 1/3 — Sales Team 1 → Left
+✅ 2/3 — Sales Team 3 → Left
+⏳ 3/3 — Marketing Group A → Leaving...
+
+Progress: ██████████ 66%
+```
+
+**Completion:**
+```
+✅ Done! 3/3 groups successfully leave kiye gaye.
+```
+
+---
+
+### ⚠️ Edge Cases — Leave Groups
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Last admin in group | `⚠️ Group Alpha: Aap last admin hain. Leave karne se pehle kisi aur ko admin banao.` |
+| Already left | `ℹ️ Pehle se is group mein nahi hain — Skip.` |
+
+---
+
+---
+
+## 🗑️ FEATURE 6 — REMOVE MEMBERS
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Scope Selection**
+
+**Trigger:** User clicks `[ 🗑️ Remove Members ]`
+
+**Bot Response:**
+```
+🗑️ Kaunse groups se members remove karne hain?
+```
+
+**Button Layout:**
+```
+[ 🌐 All Groups se Remove ]
+[ 🎯 Select Groups se Remove ]
+[ 🔙 Back ]
+```
+
+---
+
+**Step 2 — Confirmation:**
+```
+⚠️ WARNING: Yeh action selected groups ke SABHI members ko remove kar dega.
+
+Selected: All Groups (45 groups)
+Estimated Members: ~2,250
+
+Kya aap sure hain?
+```
+
+**Button Layout:**
+```
+[ ✅ Haan, Remove Karein ]   [ ❌ Cancel ]
+```
+
+---
+
+**Step 3 — Progress:**
+```
+🗑️ Members remove ho rahe hain...
+
+━━━━━━━━━━━━━━━━━━━━
+Group: Sales Team 1
+  🗑️ +919876543210 — Removed
+  🗑️ +918765432109 — Removed
+  ✅ Group 1 Complete (50 members removed)
+
+Group: Sales Team 2 — In Progress...
+━━━━━━━━━━━━━━━━━━━━
+Overall: 2/45 groups done
+```
+
+---
+
+**Completion:**
+```
+✅ Members removal complete!
+
+━━━━━━━━━━━━━━━━━━━━
+Total Groups: 45
+Total Members Removed: 2,248
+Failed: 2 (not admin in those groups)
+━━━━━━━━━━━━━━━━━━━━
+```
+
+---
+
+### ⚠️ Edge Cases — Remove Members
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Not admin | `⚠️ Group X: Admin rights nahi hain — Skip.` |
+| Removing yourself | `ℹ️ Khud ko remove nahi kar sakte — Skip.` |
+| Rate limit | `⏳ Rate limit — 10 sec wait kar raha hoon...` |
+
+---
+
+---
+
+## 👑 FEATURE 7 — MAKE ADMIN / REMOVE ADMIN
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Action Selection**
+
+**Trigger:** User clicks `[ 👑 Make/Remove Admin ]`
+
+**Bot Response:**
+```
+👑 Admin management — kya karna hai?
+```
+
+**Button Layout:**
+```
+[ ⬆️ Admin Banana Hai (Make Admin) ]
+[ ⬇️ Admin Hatana Hai (Remove Admin) ]
+[ 🔙 Back ]
+```
+
+---
+
+### 7A — Make Admin
+
+**Step 2:** User clicks `[ ⬆️ Admin Banana Hai ]`
+
+**Bot Response:**
+```
+📞 Kaunse number(s) ko admin banana hai?
+
+Format:
+• Single: +919876543210
+• Multiple: Ek line mein ek number
+
+Bhejo:
+```
+
+**Step 3:** User sends numbers.
+
+**Bot Response:**
+```
+📋 Numbers received:
++919876543210
++918765432109
+
+Kaunse groups mein admin banana hai?
+```
+
+**Button Layout:**
+```
+[ 🌐 All Groups Mein ]
+[ 🎯 Select Groups Mein ]
+```
+
+**Step 4 (Select Groups):**
+```
+1. Sales Team 1
+2. Sales Team 2
+...
+
+Numbers bhejo (comma separated):
+```
+
+**Step 5 — Progress:**
+```
+👑 Admin bana rahe hain...
+
+━━━━━━━━━━━━━━━━━━━━
+Group: Sales Team 1
+  +919876543210 → Admin bana diya ✅
+  +918765432109 → Pehle se Admin hai ⏭️ (Skipped)
+
+Group: Sales Team 2
+  +919876543210 → Admin bana diya ✅
+  +918765432109 → Admin bana diya ✅
+━━━━━━━━━━━━━━━━━━━━
+```
+
+**Completion:**
+```
+✅ Make Admin complete!
+
+Total Made Admin: 3
+Already Admin (Skipped): 1
+Failed: 0
+```
+
+---
+
+### 7B — Remove Admin
+
+**Flow:** Same as Make Admin, but reverse.
+
+**Key Difference — Progress:**
+```
+Group: Sales Team 1
+  +919876543210 → Admin rights remove ✅
+  +918765432109 → Pehle se admin nahi tha ⏭️ (Skipped)
+```
+
+---
+
+### ⚠️ Edge Cases — Make/Remove Admin
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Number not in group | `⚠️ +91xxxx is group ka member nahi — Skip.` |
+| Already admin (Make) | `ℹ️ Pehle se admin hai — Skip.` |
+| Not admin (Remove) | `ℹ️ Admin nahi hai — Skip.` |
+| You're not admin | `❌ Group X: Aap admin nahi hain — operation failed.` |
+
+---
+
+---
+
+## ✅ FEATURE 8 — APPROVAL SETTING
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Trigger**
+
+**Trigger:** User clicks `[ ✅ Approval Setting ]`
+
+**Bot Response:**
+```
+✅ Approval Setting — Group join approval toggle karunga.
+
+Yeh feature:
+1. Pehle sabhi groups mein "New Members Approve" = OFF karega
+2. Phir sabhi groups mein "New Members Approve" = ON karega
+
+Iska use: Pending requests clear karne ke liye aur fresh approval cycle start karne ke liye.
+
+Account select karein:
+```
+
+**Button Layout:**
+```
+[ 🌐 All Accounts ]
+[ 🎯 Specific Account Select ]
+[ 🔙 Back ]
+```
+
+---
+
+**Step 2 — Confirmation:**
+```
+⚠️ Confirm: Sabhi groups (45 groups) par Approval Toggle karun?
+
+Step 1: OFF karna
+Step 2: ON karna
+```
+
+**Buttons:**
+```
+[ ✅ Haan, Toggle Karein ]   [ ❌ Cancel ]
+```
+
+---
+
+**Step 3 — Progress:**
+```
+⚙️ Approval toggle ho raha hai...
+
+Phase 1 — Turning OFF:
+✅ Sales Team 1 → OFF
+✅ Sales Team 2 → OFF
+...
+✅ Phase 1 Complete! (45/45)
+
+Phase 2 — Turning ON:
+✅ Sales Team 1 → ON
+✅ Sales Team 2 → ON
+...
+✅ Phase 2 Complete! (45/45)
+```
+
+---
+
+**Completion:**
+```
+🎉 Approval Setting reset complete!
+
+━━━━━━━━━━━━━━━━━━━━
+Phase 1 (OFF): 45/45 ✅
+Phase 2 (ON): 45/45 ✅
+━━━━━━━━━━━━━━━━━━━━
+Sab groups mein "Approve New Members" = ON hai ✅
+```
+
+---
+
+### ⚠️ Edge Cases — Approval Setting
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Not admin in group | `⚠️ Group X: Admin nahi hain — Setting change nahi ho sakti.` |
+| Feature not supported | `⚠️ Group Y: Is group type mein yeh feature available nahi.` |
+
+---
+
+---
+
+## 📋 FEATURE 9 — GET PENDING LIST
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Scope Selection**
+
+**Trigger:** User clicks `[ 📋 Get Pending List ]`
+
+**Bot Response:**
+```
+📋 Kis groups ki pending list chahiye?
+```
+
+**Button Layout:**
+```
+[ 🌐 All Groups ]
+[ 🎯 Select Groups ]
+[ 🔙 Back ]
+```
+
+---
+
+**Step 2 (Select Groups):**
+```
+📋 Group list:
+
+1. Sales Team 1
+2. Sales Team 2
+3. Marketing Group A
+...
+
+Numbers bhejo (comma separated):
+```
+
+---
+
+**Step 3 — Fetching:**
+```
+⏳ Pending requests fetch ho rahe hain...
+```
+
+---
+
+**Step 4 — Output:**
+```
+📋 Pending Requests Report:
+
+━━━━━━━━━━━━━━━━━━━━
+No. | Group Name         | Pending
+━━━━━━━━━━━━━━━━━━━━
+1.  | Sales Team 1       | 12
+2.  | Sales Team 2       | 5
+3.  | Sales Team 3       | 0
+4.  | Marketing Group A  | 23
+5.  | Marketing Group B  | 8
+━━━━━━━━━━━━━━━━━━━━
+📊 TOTAL PENDING: 48 requests
+━━━━━━━━━━━━━━━━━━━━
+```
+
+**Button Layout:**
+```
+[ ✅ Sabhi Approve Karein ]
+[ ❌ Sabhi Reject Karein ]
+[ 📁 Export as TXT ]
+[ 🔙 Back ]
+```
+
+---
+
+### ⚠️ Edge Cases — Get Pending List
+
+| Situation | Bot Response |
+|-----------|-------------|
+| No pending in any group | `ℹ️ Kisi bhi group mein pending requests nahi hain.` |
+| Approval not enabled | `⚠️ Group X: "Approve Members" feature OFF hai.` |
+
+---
+
+---
+
+## 👥 FEATURE 10 — ADD MEMBERS
+
+### Complete Step-by-Step Flow
+
+---
+
+**Step 1 — Trigger**
+
+**Trigger:** User clicks `[ 👥 Add Members ]`
+
+**Bot Response:**
+```
+👥 Members add karne ke liye info bhejo.
+
+Step 1: Group link(s) bhejo.
+(Multiple links = multiple lines)
+```
+
+---
+
+**Step 2 — Group Links:**
+
+**User Action:** Sends group links.
+
+**Bot Response:**
+```
+✅ Links received: 3 links
+
+Ab number file(s) bhejo:
+• .vcf format supported ✅
+• Plain text file (.txt) supported ✅
+• Multiple files ek saath bhej sakte ho ✅
+
+Format (plain text):
++919876543210
++918765432109
+...
+```
+
+---
+
+**Step 3 — Number Files:**
+
+**User Action:** Sends files (VCF or TXT).
+
+**Bot Response:**
+```
+📁 Files received: 3 files
+
+━━━━━━━━━━━━━━━━━━━━
+Links-to-Files Pairing:
+
+Link 1 → File 1 ✅
+Link 2 → File 2 ✅
+Link 3 → File 3 ✅
+━━━━━━━━━━━━━━━━━━━━
+
+Kya yeh pairing sahi hai?
+```
+
+**Button Layout:**
+```
+[ ✅ Haan, Sahi Hai — Start Karein! ]
+[ 🔄 Pairing Change Karein ]
+[ ❌ Cancel ]
+```
+
+---
+
+**Step 3B — Mismatch Handling:**
+
+> Agar 3 links + 2 files bheje:
+```
+⚠️ Links aur files ki count match nahi karti.
+
+Links: 3
+Files: 2
+
+Kya karein?
+```
+
+**Button Layout:**
+```
+[ 📄 File 2 ko Link 2 aur 3 dono ke liye use karein ]
+[ ➕ Ek aur file bhejo ]
+[ ❌ Cancel ]
+```
+
+---
+
+**Step 4 — Adding Progress:**
+```
+👥 Members add ho rahe hain...
+
+━━━━━━━━━━━━━━━━━━━━
+📌 Group 1 (Sales Team 1) ← File 1 (150 numbers)
+  ✅ +919876543210 — Added
+  ✅ +918765432109 — Added
+  ⏳ +917654321098 — Adding...
+  Progress: 2/150
+
+📌 Group 2 (Sales Team 2) ← File 2 (120 numbers)
+  ⏳ Queued — Will start after Group 1
+━━━━━━━━━━━━━━━━━━━━
+```
+
+---
+
+**Step 5 — Completion:**
+```
+🎉 Members add karna complete!
+
+━━━━━━━━━━━━━━━━━━━━
+Group 1 (Sales Team 1):
+  ✅ Added: 148
+  ❌ Failed: 2 (number invalid ya pehle se member)
+
+Group 2 (Sales Team 2):
+  ✅ Added: 119
+  ❌ Failed: 1
+
+Group 3 (Marketing Group A):
+  ✅ Added: 200
+  ❌ Failed: 0
+━━━━━━━━━━━━━━━━━━━━
+Total Added: 467 members ✅
+Total Failed: 3
+━━━━━━━━━━━━━━━━━━━━
+```
+
+---
+
+### ⚠️ Edge Cases — Add Members
+
+| Situation | Bot Response |
+|-----------|-------------|
+| Number already in group | `ℹ️ +91xxxx pehle se member hai — Skip.` |
+| Invalid/non-WhatsApp number | `❌ +91xxxx WhatsApp par nahi hai — Skip.` |
+| Rate limit hit | `⏳ WhatsApp rate limit — Auto-resume in 60 seconds.` |
+| Not admin | `⚠️ Group X: Add members ka permission nahi — Skip.` |
+| Group full | `⚠️ Group X: Group full hai (1024/1024) — Skip.` |
+| VCF parse error | `⚠️ File X: kuch contacts parse nahi ho sake — skipped.` |
+
+---
+
+---
+
+## 🔄 GLOBAL BOT BEHAVIORS
+
+### Rate Limiting
+```
+⏳ WhatsApp ke limits ke according bot automatically wait karega.
+Actions ke beech thoda delay normal hai — yeh anti-ban protection hai.
+```
+
+### Session Timeout
+```
+⏰ 10 minutes inactivity ke baad session reset ho jaata hai.
+Dobara /start se shuru karein.
+```
+
+### Error Recovery
+```
+Koi bhi operation fail hone par:
+[🔄 Retry]   [⏭️ Skip]   [🛑 Stop]
+```
+
+### Cancel Any Time
+```
+Kisi bhi step par /cancel bhejo ya [❌ Cancel] button dabao.
+```
+
+---
+
+---
+
+## 📊 DOCUMENT SUMMARY TABLE
+
+| Feature | Bulk Support | Progress Shown | VCF Support | Admin Required |
+|---------|-------------|---------------|-------------|----------------|
+| Create Group | ✅ | ✅ | ❌ | N/A |
+| Join Groups | ✅ | ✅ | ❌ | ❌ |
+| CTC Checker | ✅ | ✅ | ✅ | ✅ (for remove) |
+| Get Link | ✅ | ✅ | ❌ | ✅ |
+| Leave Groups | ✅ | ✅ | ❌ | ❌ |
+| Remove Members | ✅ | ✅ | ❌ | ✅ |
+| Make/Remove Admin | ✅ | ✅ | ❌ | ✅ |
+| Approval Setting | ✅ | ✅ | ❌ | ✅ |
+| Get Pending List | ✅ | ✅ | ❌ | ✅ |
+| Add Members | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+---
+
+*Document Version: 1.0 | Prepared for: WhatsApp Group Management Bot Development | Date: April 2026*
