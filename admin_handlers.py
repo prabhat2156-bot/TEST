@@ -1,7 +1,3 @@
-# admin_handlers.py
-# Telegram WhatsApp Management Bot — Admin & Settings Handlers
-# python-telegram-bot v20+ (async)
-
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
