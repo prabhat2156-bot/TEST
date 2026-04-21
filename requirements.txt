@@ -1,4 +1,2 @@
-python-telegram-bot[job-queue]==20.7
-aiosqlite
-nest_asyncio
-httpx
+python-telegram-bot==20.7
+requests
