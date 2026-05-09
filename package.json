@@ -1,0 +1,20 @@
+{
+  "name": "wa-group-creator-bot",
+  "version": "2.0.0",
+  "description": "WhatsApp Group Creator Bot — Fixed & Latest Version with full group/pending detection",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "express": "^4.21.2",
+    "mongoose": "^8.13.2",
+    "pino": "^9.6.0",
+    "telegraf": "^4.16.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
