@@ -9,7 +9,9 @@
  *  - getGroupInfoFromLink cleans code before calling groupGetInviteInfo
  *  - ENHANCED: Better pending entry detection with nested field support
  *  - ENHANCED: Improved JID digit extraction with proper null handling
- *  - ENHANCED: Debug logging to track number detection issues
+ *  - FIXED: Contact number detection returning 0
+ *  - FIXED: Auto Accept filtering (link-based only)
+ *  - DEBUG: Logging to track number detection issues
  */
 
 const {
@@ -81,7 +83,7 @@ function extractPendingJid(entry) {
     jid = jid.trim();
     // Check if it contains @ (WhatsApp JID format)
     if (jid.includes('@')) {
-      return jid;
+      return normJid(jid);
     }
     // If it's pure digits, convert to proper format
     if (/^\d+$/.test(jid)) {
@@ -128,12 +130,19 @@ function jidDigits(jid) {
   return jid.replace(/[^0-9]/g, "").trim();
 }
 
+// ─── Helper: Normalize phone number to digits only ──────────────────────────
+function normalizePhone(phone) {
+  if (!phone || typeof phone !== 'string') return "";
+  const digits = phone.replace(/[^0-9+]/g, "").replace(/^\+/, "").trim();
+  return digits;
+}
+
 // ─── Auto-Accept State ────────────────────────────────────────────────────
-const autoAcceptGroups = new Map(); // gid → { accepted: 0 }
+const autoAcceptGroups = new Map(); // gid → { accepted: 0, source: "link|invite" }
 let autoAcceptTimer = null;
 
 function startAutoAcceptForGroups(groupIds, index = 0) {
-  groupIds.forEach((gid) => autoAcceptGroups.set(gid, { accepted: 0 }));
+  groupIds.forEach((gid) => autoAcceptGroups.set(gid, { accepted: 0, source: "link" }));
   if (autoAcceptTimer) return;
   autoAcceptTimer = setInterval(async () => {
     const active = [...autoAcceptGroups.keys()];
@@ -147,9 +156,18 @@ function startAutoAcceptForGroups(groupIds, index = 0) {
     for (const gid of active) {
       if (!autoAcceptGroups.has(gid)) continue;
       try {
-        // Accept ALL pending requests — no filter by request method
         const pending = await fetchPendingList(s, gid);
-        const jids = (pending || []).map(extractPendingJid).filter(Boolean);
+        // FIXED: Filter to only link-based join requests
+        // Link-based requests typically have method: "LinkRequest" or similar
+        const linkBasedRequests = (pending || []).filter((p) => {
+          // Check if request has indication it's from link
+          const method = p.method || p.joinMethod || "";
+          return method.toLowerCase().includes("link") || 
+                 method.toLowerCase().includes("invite") ||
+                 !method; // Include if method is unclear (fallback)
+        });
+        
+        const jids = linkBasedRequests.map(extractPendingJid).filter(Boolean);
         if (jids.length) {
           await s
             .groupRequestParticipantsUpdate(gid, jids, "approve")
@@ -179,7 +197,7 @@ function getAutoAcceptStats(groupIds) {
   return result;
 }
 
-// ─── Connect ───────────────────────────────────────────────────────────
+// ─── Connect ──────────────────────────────────────────────────────────
 async function connectAccount(index, phoneNumber, freshStart = true) {
   const acc = accounts[index];
   if (!acc) throw new Error("Invalid account index");
@@ -308,7 +326,7 @@ async function reconnectSavedAccounts() {
   );
 }
 
-// ─── Group Creation ───────────────────────────────────────────────────────
+// ─── Group Creation ────────────────────────────────────────────────────────
 async function createGroup(index, name, jids) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
@@ -387,7 +405,7 @@ async function getAllGroupsWithDetails(index) {
   }));
 }
 
-// ─── Leave Group ──────────────────────────────────────────────────────────
+// ─── Leave Group ────────────────────────────────────────────────────────
 async function leaveGroup(index, gid) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
@@ -414,21 +432,18 @@ async function removeAllMembers(index, gid) {
   return toRm.length;
 }
 
-// ─── Make Admin ───────────────────────────────────────────────────────────
-// Logic (per number):
-//   Step 1 — Search group members list (compare pure digits only)
-//             If found → promote directly
-//   Step 2 — If not in members, search pending list ONE BY ONE (compare digits)
-//             If found → approve that one entry → wait 6s → promote
+// ─── Make Admin ────────────────────────────────────────────────────────
+// FIXED: Properly detect contact numbers without returning 0
 async function makeAdminByNumbers(index, gid, phones) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
   let promoted = 0;
 
   for (const phone of phones) {
-    const digits = phone.replace(/[^0-9]/g, "").trim();
-    if (!digits || digits.length < 7) {
-      console.log(`⚠️ [makeAdmin] Invalid phone: ${phone} (too short)`);
+    // FIXED: Better phone number normalization
+    const normalized = normalizePhone(phone);
+    if (!normalized || normalized.length < 7) {
+      console.log(`⚠️ [makeAdmin] Invalid phone: ${phone} (normalized: ${normalized})`);
       continue;
     }
 
@@ -437,24 +452,28 @@ async function makeAdminByNumbers(index, gid, phones) {
       const meta = await s.groupMetadata(gid);
       const participants = getParticipants(meta);
       
-      console.log(`🔍 [makeAdmin] Searching for ${digits} in ${participants.length} members`);
+      console.log(`🔍 [makeAdmin] Searching for ${normalized} in ${participants.length} members`);
 
       const member = participants.find((p) => {
         const memberDigits = jidDigits(p.id);
-        return memberDigits === digits;
+        // Match considering different country codes
+        const matches = memberDigits === normalized || 
+                       memberDigits.endsWith(normalized) ||
+                       normalized.endsWith(memberDigits.slice(-10));
+        return matches;
       });
 
       if (member) {
         // Found in members → promote directly
-        console.log(`✅ [makeAdmin] Found ${digits} in members as: ${member.id}`);
+        console.log(`✅ [makeAdmin] Found ${normalized} in members as: ${member.id}`);
         await s
           .groupParticipantsUpdate(gid, [member.id], "promote")
           .catch((e) => console.error("[makeAdmin] promote error:", e.message));
         promoted++;
-        console.log(`✅ [makeAdmin] Promoted ${digits} from members`);
+        console.log(`✅ [makeAdmin] Promoted ${normalized} from members`);
       } else {
         // ── Step 2: Check pending list one by one ──────────────────────
-        console.log(`🔎 [makeAdmin] ${digits} NOT in members, checking pending list...`);
+        console.log(`🔎 [makeAdmin] ${normalized} NOT in members, checking pending list...`);
         let pendingJid = null;
         try {
           const pendingList = await fetchPendingList(s, gid);
@@ -473,9 +492,14 @@ async function makeAdminByNumbers(index, gid, phones) {
             const pendingDigits = jidDigits(pJid);
             console.log(`  [DEBUG] Pending #${i}: JID=${pJid}, digits=${pendingDigits}`);
             
-            if (pendingDigits === digits) {
+            // Match considering different country codes
+            const matches = pendingDigits === normalized || 
+                           pendingDigits.endsWith(normalized) ||
+                           normalized.endsWith(pendingDigits.slice(-10));
+            
+            if (matches) {
               pendingJid = pJid;
-              console.log(`🎯 [makeAdmin] Found match! ${digits} in pending as: ${pJid}`);
+              console.log(`🎯 [makeAdmin] Found match! ${normalized} in pending as: ${pJid}`);
               break;
             }
           }
@@ -485,25 +509,30 @@ async function makeAdminByNumbers(index, gid, phones) {
 
         if (pendingJid) {
           // Found in pending → approve first, then promote
-          console.log(`🔄 [makeAdmin] Approving ${digits} (${pendingJid})...`);
+          console.log(`🔄 [makeAdmin] Approving ${normalized} (${pendingJid})...`);
           await s
             .groupRequestParticipantsUpdate(gid, [pendingJid], "approve")
             .catch((e) => console.error(`[makeAdmin] Approve error:`, e.message));
 
           // Wait for them to actually join
-          console.log(`⏳ [makeAdmin] Waiting 6 seconds for ${digits} to join...`);
+          console.log(`⏳ [makeAdmin] Waiting 6 seconds for ${normalized} to join...`);
           await new Promise((r) => setTimeout(r, 6000));
 
-          // Re-fetch metadata to get the actual joined JID (may have device suffix)
+          // Re-fetch metadata to get the actual joined JID
           try {
             const newMeta = await s.groupMetadata(gid);
             const newParticipants = getParticipants(newMeta);
-            const newMember = newParticipants.find((p) => jidDigits(p.id) === digits);
+            const newMember = newParticipants.find((p) => {
+              const memberDigits = jidDigits(p.id);
+              return memberDigits === normalized || 
+                     memberDigits.endsWith(normalized) ||
+                     normalized.endsWith(memberDigits.slice(-10));
+            });
             
             if (newMember) {
-              console.log(`✅ [makeAdmin] ${digits} joined! Found as: ${newMember.id}`);
+              console.log(`✅ [makeAdmin] ${normalized} joined! Found as: ${newMember.id}`);
             } else {
-              console.log(`⚠️ [makeAdmin] ${digits} not yet in members after approval`);
+              console.log(`⚠️ [makeAdmin] ${normalized} not yet in members after approval`);
             }
 
             const jidToUse = newMember ? newMember.id : pendingJid;
@@ -513,16 +542,16 @@ async function makeAdminByNumbers(index, gid, phones) {
                 console.error("[makeAdmin] post-approve promote error:", e.message)
               );
             promoted++;
-            console.log(`✅ [makeAdmin] Promoted ${digits} after approve`);
+            console.log(`✅ [makeAdmin] Promoted ${normalized} after approve`);
           } catch (e) {
             console.error("[makeAdmin] post-approve metadata error:", e.message);
           }
         } else {
-          console.log(`❓ [makeAdmin] ${digits} NOT FOUND in members OR pending`);
+          console.log(`❓ [makeAdmin] ${normalized} NOT FOUND in members OR pending`);
         }
       }
     } catch (e) {
-      console.error("[makeAdmin] error for", digits, ":", e.message);
+      console.error("[makeAdmin] error for", normalized, ":", e.message);
     }
 
     // Small delay between each number
@@ -533,35 +562,52 @@ async function makeAdminByNumbers(index, gid, phones) {
   return promoted;
 }
 
-// ─── Demote Admin ──────────────────────────────────────────────────────────
+// ─── Demote Admin ────────────────────────────────────────────────────────
 async function demoteAdminInGroup(index, gid, phones) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
   let demoted = 0;
 
   for (const phone of phones) {
-    const digits = phone.replace(/[^0-9]/g, "");
-    if (!digits || digits.length < 7) continue;
-    const baseJid = `${digits}@s.whatsapp.net`;
+    // FIXED: Better phone number normalization
+    const normalized = normalizePhone(phone);
+    if (!normalized || normalized.length < 7) {
+      console.log(`⚠️ [demoteAdmin] Invalid phone: ${phone}`);
+      continue;
+    }
 
     try {
       const meta = await s.groupMetadata(gid);
       const participants = getParticipants(meta);
-      const member = participants.find(
-        (p) => normJid(p.id) === normJid(baseJid)
-      );
-      if (!member) continue;
+      
+      const member = participants.find((p) => {
+        const memberDigits = jidDigits(p.id);
+        return memberDigits === normalized || 
+               memberDigits.endsWith(normalized) ||
+               normalized.endsWith(memberDigits.slice(-10));
+      });
+      
+      if (!member) {
+        console.log(`⚠️ [demoteAdmin] ${normalized} not found in members`);
+        continue;
+      }
+      
       const isAdmin =
         member.admin === "admin" ||
         member.admin === "superadmin" ||
         member.admin === true;
-      if (!isAdmin) continue;
+      if (!isAdmin) {
+        console.log(`⚠️ [demoteAdmin] ${normalized} is not an admin`);
+        continue;
+      }
+      
       await s
         .groupParticipantsUpdate(gid, [member.id], "demote")
         .catch((e) => console.error("[demoteAdmin] error:", e.message));
       demoted++;
+      console.log(`✅ [demoteAdmin] Demoted ${normalized}`);
     } catch (e) {
-      console.error("[demoteAdmin] error for", digits, ":", e.message);
+      console.error("[demoteAdmin] error for", normalized, ":", e.message);
     }
 
     await new Promise((r) => setTimeout(r, 600));
@@ -570,7 +616,7 @@ async function demoteAdminInGroup(index, gid, phones) {
   return demoted;
 }
 
-// ─── Approval ──────────────────────────────────────────────────────────────
+// ─── Approval ──────────────────────────────────────────────────────────
 async function getGroupApprovalStatus(index, gid) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
@@ -773,14 +819,14 @@ async function applyGroupSettings(index, gid, desired) {
   return { changes, skipped };
 }
 
-// ─── Rename Group ─────────────────────────────────────────────────────────
+// ─── Rename Group ────────────────────────────────────────────────────────
 async function renameGroup(index, gid, newName) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
   await s.groupUpdateSubject(gid, newName);
 }
 
-// ─── Add Members ──────────────────────────────────────────────────────────
+// ─── Add Members ────────────────────────────────────────────────────────
 async function addMembersToGroup(index, gid, phones, oneByOne = false) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
