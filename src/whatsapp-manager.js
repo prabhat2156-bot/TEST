@@ -7,6 +7,9 @@
  *  - groupRequestParticipantsList with pendingParticipants fallback
  *  - extractPendingJid handles .jid / .id / .participant across versions
  *  - getGroupInfoFromLink cleans code before calling groupGetInviteInfo
+ *  - ENHANCED: Better pending entry detection with nested field support
+ *  - ENHANCED: Improved JID digit extraction with proper null handling
+ *  - ENHANCED: Debug logging to track number detection issues
  */
 
 const {
@@ -49,12 +52,44 @@ function normJid(jid) {
   return (jid || "").replace(/:\d+@/, "@").toLowerCase().trim();
 }
 
-// ─── Pending Entry Helper ─────────────────────────────────────────────────
+// ─── Enhanced JID Extraction ──────────────────────────────────────────────
 // Baileys versions differ in which field holds the JID inside pending entries.
-// Try every known field name in order.
+// Try every known field name AND nested structures.
 function extractPendingJid(entry) {
   if (!entry) return null;
-  return entry.jid || entry.participant || entry.id || null;
+  
+  // Try primary fields first
+  let jid = entry.jid 
+    || entry.participant 
+    || entry.id 
+    || entry.requester
+    || entry.phoneNumber
+    || null;
+
+  // If still no JID, try nested structures
+  if (!jid && typeof entry === 'object') {
+    // Try user object
+    if (entry.user?.id) jid = entry.user.id;
+    else if (entry.user?.jid) jid = entry.user.jid;
+    // Try additional nested fields
+    else if (entry.requester?.jid) jid = entry.requester.jid;
+    else if (entry.requester?.id) jid = entry.requester.id;
+  }
+
+  // Validate that extracted value looks like a JID
+  if (jid && typeof jid === 'string') {
+    jid = jid.trim();
+    // Check if it contains @ (WhatsApp JID format)
+    if (jid.includes('@')) {
+      return jid;
+    }
+    // If it's pure digits, convert to proper format
+    if (/^\d+$/.test(jid)) {
+      return `${jid}@s.whatsapp.net`;
+    }
+  }
+
+  return null;
 }
 
 // ─── Group Metadata Helper ────────────────────────────────────────────────
@@ -85,6 +120,12 @@ async function fetchPendingList(socket, gid) {
   } catch (_) {}
 
   return [];
+}
+
+// ─── Helper: Extract digits from JID ──────────────────────────────────────
+function jidDigits(jid) {
+  if (!jid || typeof jid !== 'string') return "";
+  return jid.replace(/[^0-9]/g, "").trim();
 }
 
 // ─── Auto-Accept State ────────────────────────────────────────────────────
@@ -138,7 +179,7 @@ function getAutoAcceptStats(groupIds) {
   return result;
 }
 
-// ─── Connect ──────────────────────────────────────────────────────────────
+// ─── Connect ───────────────────────────────────────────────────────────
 async function connectAccount(index, phoneNumber, freshStart = true) {
   const acc = accounts[index];
   if (!acc) throw new Error("Invalid account index");
@@ -267,7 +308,7 @@ async function reconnectSavedAccounts() {
   );
 }
 
-// ─── Group Creation ────────────────────────────────────────────────────────
+// ─── Group Creation ───────────────────────────────────────────────────────
 async function createGroup(index, name, jids) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
@@ -346,7 +387,7 @@ async function getAllGroupsWithDetails(index) {
   }));
 }
 
-// ─── Leave Group ───────────────────────────────────────────────────────────
+// ─── Leave Group ──────────────────────────────────────────────────────────
 async function leaveGroup(index, gid) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
@@ -373,7 +414,7 @@ async function removeAllMembers(index, gid) {
   return toRm.length;
 }
 
-// ─── Make Admin ────────────────────────────────────────────────────────────
+// ─── Make Admin ───────────────────────────────────────────────────────────
 // Logic (per number):
 //   Step 1 — Search group members list (compare pure digits only)
 //             If found → promote directly
@@ -384,62 +425,87 @@ async function makeAdminByNumbers(index, gid, phones) {
   if (!s) throw new Error("Not connected!");
   let promoted = 0;
 
-  // Helper: extract pure digits from a JID for comparison
-  function jidDigits(jid) {
-    return (jid || "").replace(/[^0-9]/g, "");
-  }
-
   for (const phone of phones) {
-    const digits = phone.replace(/[^0-9]/g, "");
-    if (!digits || digits.length < 7) continue;
+    const digits = phone.replace(/[^0-9]/g, "").trim();
+    if (!digits || digits.length < 7) {
+      console.log(`⚠️ [makeAdmin] Invalid phone: ${phone} (too short)`);
+      continue;
+    }
 
     try {
       // ── Step 1: Check group members ─────────────────────────────────
       const meta = await s.groupMetadata(gid);
       const participants = getParticipants(meta);
+      
+      console.log(`🔍 [makeAdmin] Searching for ${digits} in ${participants.length} members`);
 
-      const member = participants.find((p) => jidDigits(p.id) === digits);
+      const member = participants.find((p) => {
+        const memberDigits = jidDigits(p.id);
+        return memberDigits === digits;
+      });
 
       if (member) {
         // Found in members → promote directly
+        console.log(`✅ [makeAdmin] Found ${digits} in members as: ${member.id}`);
         await s
           .groupParticipantsUpdate(gid, [member.id], "promote")
           .catch((e) => console.error("[makeAdmin] promote error:", e.message));
         promoted++;
-        console.log(`[makeAdmin] Promoted ${digits} from members`);
+        console.log(`✅ [makeAdmin] Promoted ${digits} from members`);
       } else {
         // ── Step 2: Check pending list one by one ──────────────────────
+        console.log(`🔎 [makeAdmin] ${digits} NOT in members, checking pending list...`);
         let pendingJid = null;
         try {
           const pendingList = await fetchPendingList(s, gid);
+          console.log(`📋 [makeAdmin] Found ${pendingList?.length || 0} pending requests`);
+          
           // Loop through each pending entry individually
-          for (const entry of (pendingList || [])) {
+          for (let i = 0; i < (pendingList || []).length; i++) {
+            const entry = pendingList[i];
             const pJid = extractPendingJid(entry);
-            if (!pJid) continue;
-            if (jidDigits(pJid) === digits) {
+            
+            if (!pJid) {
+              console.log(`⚠️ [makeAdmin] Pending entry #${i} has no extractable JID:`, JSON.stringify(entry));
+              continue;
+            }
+
+            const pendingDigits = jidDigits(pJid);
+            console.log(`  [DEBUG] Pending #${i}: JID=${pJid}, digits=${pendingDigits}`);
+            
+            if (pendingDigits === digits) {
               pendingJid = pJid;
+              console.log(`🎯 [makeAdmin] Found match! ${digits} in pending as: ${pJid}`);
               break;
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          console.error(`❌ [makeAdmin] Error fetching pending:`, e.message);
+        }
 
         if (pendingJid) {
           // Found in pending → approve first, then promote
-          console.log(`[makeAdmin] Found ${digits} in pending, approving...`);
+          console.log(`🔄 [makeAdmin] Approving ${digits} (${pendingJid})...`);
           await s
             .groupRequestParticipantsUpdate(gid, [pendingJid], "approve")
-            .catch(() => {});
+            .catch((e) => console.error(`[makeAdmin] Approve error:`, e.message));
 
           // Wait for them to actually join
+          console.log(`⏳ [makeAdmin] Waiting 6 seconds for ${digits} to join...`);
           await new Promise((r) => setTimeout(r, 6000));
 
           // Re-fetch metadata to get the actual joined JID (may have device suffix)
           try {
             const newMeta = await s.groupMetadata(gid);
             const newParticipants = getParticipants(newMeta);
-            const newMember = newParticipants.find(
-              (p) => jidDigits(p.id) === digits
-            );
+            const newMember = newParticipants.find((p) => jidDigits(p.id) === digits);
+            
+            if (newMember) {
+              console.log(`✅ [makeAdmin] ${digits} joined! Found as: ${newMember.id}`);
+            } else {
+              console.log(`⚠️ [makeAdmin] ${digits} not yet in members after approval`);
+            }
+
             const jidToUse = newMember ? newMember.id : pendingJid;
             await s
               .groupParticipantsUpdate(gid, [jidToUse], "promote")
@@ -447,12 +513,12 @@ async function makeAdminByNumbers(index, gid, phones) {
                 console.error("[makeAdmin] post-approve promote error:", e.message)
               );
             promoted++;
-            console.log(`[makeAdmin] Promoted ${digits} after approve`);
+            console.log(`✅ [makeAdmin] Promoted ${digits} after approve`);
           } catch (e) {
             console.error("[makeAdmin] post-approve metadata error:", e.message);
           }
         } else {
-          console.log(`[makeAdmin] ${digits} not found in members or pending`);
+          console.log(`❓ [makeAdmin] ${digits} NOT FOUND in members OR pending`);
         }
       }
     } catch (e) {
@@ -463,6 +529,7 @@ async function makeAdminByNumbers(index, gid, phones) {
     await new Promise((r) => setTimeout(r, 800));
   }
 
+  console.log(`📊 [makeAdmin] Total promoted: ${promoted}/${phones.length}`);
   return promoted;
 }
 
@@ -503,7 +570,7 @@ async function demoteAdminInGroup(index, gid, phones) {
   return demoted;
 }
 
-// ─── Approval ─────────────────────────────────────────────────────────────
+// ─── Approval ──────────────────────────────────────────────────────────────
 async function getGroupApprovalStatus(index, gid) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
@@ -619,7 +686,7 @@ async function resetGroupInviteLink(index, gid) {
   return `https://chat.whatsapp.com/${code}`;
 }
 
-// ─── Group Settings ────────────────────────────────────────────────────────
+// ─── Group Settings ───────────────────────────────────────────────────────
 async function getGroupSettings(index, gid) {
   const s = getSocket(index);
   if (!s) throw new Error("Not connected!");
