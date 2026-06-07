@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: god-madara-bot
+    env: python
+    buildCommand: apt-get install -y maven && pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: BASE_URL
+        fromService:
+          type: web
+          name: god-madara-bot
+          property: host
+      - key: PORT
+        value: 8080
