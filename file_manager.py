@@ -2107,7 +2107,7 @@ def api_zip(token):
 # ─────────────────────────────────────────────────────────────
 def create_dev_token(project_dir: str = ".",
                      token: str = "dev",
-                     duration_sec: int = 3600) -> str:
+                     duration_sec: int = 315360000) -> str:
     project_dir = os.path.realpath(project_dir)
     os.makedirs(project_dir, exist_ok=True)
     token_store[token] = {
