@@ -32,69 +32,69 @@ HOW TO USE
 
 PREMIUM_EMOJI_IDS = {
     # ── Already set (examples you gave earlier) ──
-    "star":     "5431466070281165010",  # ⭐ Premium/VIP callouts
+    "star":     "5334523697174683404",  # ⭐ Premium/VIP callouts
     "fire":     "5368324170671202286",  # 🔥 highlights/success banners
-    "diamond":  "",                     # 💎 Premium/plan labels
-    "crown":    "",                     # 👑 Owner/Admin role label
+    "diamond":  "5039670412733055750",                     # 💎 Premium/plan labels
+    "crown":    "5039539210072097557",                     # 👑 Owner/Admin role label
 
     # ── Every other emoji used in bot MESSAGE TEXT (not buttons) ──
     # Fill in the numeric ID from @tgemojiidbot. Leave "" to keep the plain emoji.
-    "cross":          "",  # ❌
-    "check":          "",  # ✅
-    "lock":           "",  # 🔒
-    "arrow_right":    "",  # →
-    "warning":        "",  # ⚠
-    "chart":          "",  # 📊
-    "banned":         "",  # 🚫
-    "wrench":         "",  # 🔧
-    "green_dot":      "",  # 🟢
-    "database":       "",  # 🗄
-    "folder":         "",  # 📁
-    "package":        "",  # 📦
-    "refresh_arrows": "",  # 🔄
-    "floppy":         "",  # 💾
-    "open_folder":    "",  # 📂
-    "blue_diamond":   "",  # 🔹
-    "red_dot":        "",  # 🔴
-    "github":         "",  # 🐙
-    "users":          "",  # 👥
-    "tv":             "",  # 📺
-    "gear":           "",  # ⚙
-    "repeat":         "",  # 🔁
-    "party":          "",  # 🎉
-    "clipboard":      "",  # 📋
-    "trash":          "",  # 🗑
-    "shield":         "",  # 🛡
-    "lock_key":       "",  # 🔐
-    "sparkles":       "",  # ✨
-    "rocket":         "",  # 🚀
-    "person":         "",  # 👤
-    "unlock":         "",  # 🔓
-    "pencil":         "",  # ✏
-    "star2":          "",  # 🌟
-    "cloud":          "",  # ☁
-    "link":           "",  # 🔗
-    "bell":           "",  # 🔔
-    "clock":          "",  # 🕐
-    "megaphone":      "",  # 📢
-    "noentry":        "",  # ⛔
-    "wave":           "",  # 👋
-    "laptop":         "",  # 💻
-    "desktop":        "",  # 🖥
-    "calendar":       "",  # 📅
-    "inbox":          "",  # 📥
-    "boom":           "",  # 💥
-    "python":         "",  # 🐍
-    "pingpong":       "",  # 🏓
-    "magnifier":      "",  # 🔍
-    "memo":           "",  # 📝
-    "globe":          "",  # 🌐
-    "page":           "",  # 📄
-    "envelope":       "",  # 📩
-    "minus":          "",  # ➖
-    "plus":           "",  # ➕
-    "broom":          "",  # 🧹
-    "chart_up":       "",  # 📈
+    "cross":          "5040042498634810056",  # ❌
+    "check":          "5039844895779455925",  # ✅
+    "lock":           "6129906126625447892",  # 🔒
+    "arrow_right":    "5346105514575025401",  # →
+    "warning":        "5039665997506675838",  # ⚠
+    "chart":          "5039808285478224750",  # 📊
+    "banned":         "5042112436648281096",  # 🚫
+    "wrench":         "5350396951407895212",  # 🔧
+    "green_dot":      "5188234920639632382",  # 🟢
+    "database":       "6129553763213515073",  # 🗄
+    "folder":         "5445221832074483553",  # 📁
+    "package":        "4967518033061872209",  # 📦
+    "refresh_arrows": "5310278924616356636",  # 🔄
+    "floppy":         "5235989279024373566",  # 💾
+    "open_folder":    "5445353829304387411",  # 📂
+    "blue_diamond":   "4956719506027185156",  # 🔹
+    "red_dot":        "6116324271804387654",  # 🔴
+    "github":         "6129889801454754893",  # 🐙
+    "users":          "6156434919842127016",  # 👥
+    "tv":             "6129888444245089008",  # 📺
+    "gear":           "4965290516993278759",  # ⚙
+    "repeat":         "5337328443962960187",  # 🔁
+    "party":          "4956596167451346576",  # 🎉
+    "clipboard":      "5873153278023307367",  # 📋
+    "trash":          "4956337889593000947",  # 🗑
+    "shield":         "4963323872943276909",  # 🛡
+    "lock_key":       "6176966310920983412",  # 🔐
+    "sparkles":       "4956371914323920049",  # ✨
+    "rocket":         "6093651105089065114",  # 🚀
+    "person":         "6273840152980755328",  # 👤
+    "unlock":         "5310278924616356636",  # 🔓
+    "pencil":         "5395444784611480792",  # ✏
+    "star2":          "5224205542326557875",  # 🌟
+    "cloud":          "6129695952400820630",  # ☁
+    "link":           "5379742233853451967",  # 🔗
+    "bell":           "6129577213734952104",  # 🔔
+    "clock":          "6242510612824332116",  # 🕐
+    "megaphone":      "6129492160497589882",  # 📢
+    "noentry":        "5039614900280754969",  # ⛔
+    "wave":           "6325790754543241229",  # 👋
+    "laptop":         "5870994129244131212",  # 💻
+    "desktop":        "5870772616305839506",  # 🖥
+    "calendar":       "5274055917766202507",  # 📅
+    "inbox":          "5445221832074483553",  # 📥
+    "boom":           "5280569974404966639",  # 💥
+    "python":         "6093869083269271739",  # 🐍
+    "pingpong":       "6034910005612778344",  # 🏓
+    "magnifier":      "5397986013681295058",  # 🔍
+    "memo":           "5197269100878907942",  # 📝
+    "globe":          "5042186567783809934",  # 🌐
+    "page":           "5033080906403808074",  # 📄
+    "envelope":       "5274055917766202507",  # 📩
+    "minus":          "6307665627481903641",  # ➖
+    "plus":           "6093406373557571574",  # ➕
+    "broom":          "6082192016379220195",  # 🧹
+    "chart_up":       "5429651785352501917",  # 📈
 }
 
 
