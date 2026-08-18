@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}TG Accounts{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Telegram Accounts (OTP Stock)</h1>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+  <div class="card p-4"><div class="text-xs text-slate-400">Available</div><div class="text-lg">{{ rows|selectattr('available')|list|length }}</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Total rows</div><div class="text-lg">{{ rows|length }}</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Delivered today</div><div class="text-lg">{{ orders_today }}</div></div>
+  <form method="post" action="/tg/stock" class="card p-4 space-y-2">
+    <div class="text-xs text-slate-400">USDT → INR rate ({{ usdt_rate }})</div>
+    <input name="rate" placeholder="e.g. 90">
+    <button class="btn" name="action" value="rate">Update rate</button>
+  </form>
+</div>
+
+<!-- ── Add account with OTP + 2FA ───────────────────────────────────────── -->
+<div class="card p-4 mb-4">
+  <div class="font-medium mb-2">➕ Add TG Account (OTP + 2FA login)</div>
+  {% set step = (login_state.step if login_state else 'phone') %}
+
+  {% if step == 'phone' %}
+  <form method="post" action="/tg/add/start" class="flex flex-col md:flex-row gap-2">
+    <input name="phone" placeholder="+919999999999">
+    <button class="btn whitespace-nowrap">Send OTP</button>
+  </form>
+  <p class="text-xs text-slate-500 mt-2">Telegram will send a login code to that number's Telegram app.</p>
+  {% else %}
+  <div class="text-sm mb-2">Number: <span class="text-sky-400">+{{ login_state.phone }}</span></div>
+  {% endif %}
+
+  {% if step == 'otp' %}
+  <form method="post" action="/tg/add/code" class="flex flex-col md:flex-row gap-2">
+    <input name="code" placeholder="OTP code (e.g. 12345)">
+    <button class="btn whitespace-nowrap">Verify OTP</button>
+  </form>
+  {% endif %}
+
+  {% if step == '2fa' %}
+  <form method="post" action="/tg/add/password" class="flex flex-col md:flex-row gap-2">
+    <input name="password" type="password" placeholder="2FA / cloud password">
+    <button class="btn whitespace-nowrap">Verify 2FA</button>
+  </form>
+  {% endif %}
+
+  {% if step == 'details' %}
+  <form method="post" action="/tg/add/finish" class="grid md:grid-cols-5 gap-2 items-end">
+    <div><label class="text-xs text-slate-400">Country</label><input name="country" placeholder="India"></div>
+    <div><label class="text-xs text-slate-400">Flag</label><input name="icon" placeholder="🇮🇳"></div>
+    <div><label class="text-xs text-slate-400">Year</label><input name="year" placeholder="2021"></div>
+    <div><label class="text-xs text-slate-400">Price (INR)</label><input name="price" placeholder="60"></div>
+    <div><label class="text-xs text-slate-400">2FA (optional)</label>
+      <input name="twofa" value="{{ login_state.twofa or '' }}" placeholder="None"></div>
+    <button class="btn md:col-span-5">Save to Stock</button>
+  </form>
+  {% endif %}
+
+  {% if step != 'phone' %}
+  <form method="post" action="/tg/add/cancel" class="mt-2"><button class="btn btn-gray">Cancel login</button></form>
+  {% endif %}
+</div>
+
+<!-- ── Group pricing ───────────────────────────────────────────────────── -->
+<div class="card p-3 mb-4 overflow-x-auto">
+  <div class="font-medium mb-2 px-1">Stock by country / year</div>
+  <table class="w-full min-w-[720px]">
+    <tr><th>Country</th><th>Year</th><th>Available</th><th>Total</th><th>Price</th><th>Actions</th></tr>
+    {% for g in groups %}
+    <tr><td>{{ g.icon }} {{ g.country }}</td><td>{{ g.year }}</td>
+      <td>{{ g.available }}</td><td>{{ g.total }}</td><td>{{ g.price }}</td>
+      <td>
+        <form method="post" action="/tg/stock" class="flex flex-wrap gap-1 items-center">
+          <input type="hidden" name="country" value="{{ g.country }}">
+          <input type="hidden" name="year" value="{{ g.year }}">
+          <input name="price" placeholder="New price" class="w-28">
+          <button class="btn" name="action" value="price_group">Set price</button>
+          <button class="btn btn-gray" name="action" value="auto_price">Auto-price</button>
+          <button class="btn btn-red" name="action" value="wipe_country"
+                  onclick="return confirm('Delete every {{ g.country }} account?')">Wipe country</button>
+        </form>
+      </td></tr>
+    {% else %}<tr><td colspan="6" class="text-slate-500">No TG stock.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card p-3 overflow-x-auto">
+  <div class="font-medium mb-2 px-1">All numbers</div>
+  <table class="w-full min-w-[820px]">
+    <tr><th>Phone</th><th>Country</th><th>Year</th><th>Price</th><th>2FA</th><th>Status</th><th>Added</th><th></th></tr>
+    {% for r in rows %}
+    <tr><td>+{{ r.phone }}</td><td>{{ r.country_icon }} {{ r.country_name }}</td>
+      <td>{{ r.account_year }}</td><td>{{ r.price }}</td><td>{{ r.twofa }}</td>
+      <td>{{ 'available' if r.available else 'sold' }}</td><td>{{ r.added_at }}</td>
+      <td><form method="post" action="/tg/stock"><input type="hidden" name="phone" value="{{ r.phone }}">
+        <button class="btn btn-red" name="action" value="delete">Delete</button></form></td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

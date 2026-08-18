@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Stock — {{ product.name }}{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-1">{{ product.emoji }} {{ product.name }}</h1>
+<p class="text-xs text-slate-400 mb-4">Available stock: {{ count }}</p>
+
+<form method="post" class="card p-4 space-y-2 mb-4">
+  <div class="font-medium">Add Stock (one item per line)</div>
+  <textarea name="items" rows="8" placeholder="email:password&#10;email2:password2"></textarea>
+  <div class="flex gap-2">
+    <button class="btn" name="action" value="add">Add Stock</button>
+    <button class="btn btn-red" name="action" value="clear"
+            onclick="return confirm('Clear all unsold stock?')">Clear Stock</button>
+    <a class="btn btn-gray" href="/catalog">Back</a>
+  </div>
+</form>
+
+<div class="card p-3 overflow-x-auto">
+<table class="w-full min-w-[700px]">
+  <tr><th>ID</th><th>Data</th><th>Status</th><th>Added</th><th></th></tr>
+  {% for it in items %}
+  <tr><td>{{ it.id }}</td><td class="max-w-[380px] truncate">{{ it.data }}</td>
+    <td>{{ 'sold' if it.is_sold else 'available' }}</td>
+    <td>{{ it.added_at }}</td>
+    <td><form method="post"><input type="hidden" name="item_id" value="{{ it.id }}">
+      <button class="btn btn-red" name="action" value="remove">Delete</button></form></td></tr>
+  {% else %}<tr><td colspan="5" class="text-slate-500">No stock items.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

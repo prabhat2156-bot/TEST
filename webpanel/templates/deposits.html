@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Deposits{% endblock %}
+{% block content %}
+<div class="flex items-center gap-2 mb-4 flex-wrap">
+  <h1 class="text-xl font-semibold">💰 Deposits</h1>
+  <a class="btn {{ '' if scope=='today' else 'btn-gray' }}" href="/deposits?scope=today">Today</a>
+  <a class="btn {{ '' if scope=='all' else 'btn-gray' }}" href="/deposits?scope=all">All time</a>
+  <a class="btn {{ '' if scope=='pending' else 'btn-gray' }}" href="/deposits?scope=pending">Pending</a>
+  <a class="btn btn-gray ml-auto" href="/export/deposits">⬇ Export TXT</a>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+  <div class="card p-4"><div class="text-xs text-slate-400">Completed</div><div class="text-lg font-semibold">{{ stats.success_count }}</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Amount</div><div class="text-lg font-semibold">{{ '%.2f'|format(stats.success_amt) }} USDT</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Failed</div><div class="text-lg font-semibold">{{ stats.failed_count }}</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Pending</div><div class="text-lg font-semibold">{{ stats.pending_count }}</div></div>
+</div>
+<div class="card p-3 overflow-x-auto">
+<table class="min-w-[1000px]">
+  <thead><tr><th>#</th><th>User</th><th>Amount</th><th>Expected</th><th>Network</th><th>Status</th><th>TxID</th><th>Created</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for d in rows %}
+  <tr>
+    <td>{{ d.id }}</td>
+    <td><a class="text-indigo-400" href="/users/{{ d.user_id }}">{{ d.username or d.user_id }}</a></td>
+    <td>{{ '%.2f'|format(d.requested_usdt or 0) }}</td>
+    <td>{{ '%.4f'|format(d.expected_usdt or 0) }}</td>
+    <td>{{ d.network or '—' }}</td>
+    <td>{% if d.status == 'completed' %}<span class="pill pill-ok">{{ d.status }}</span>
+        {% elif d.status == 'pending' %}<span class="pill pill-warn">{{ d.status }}</span>
+        {% else %}<span class="pill pill-bad">{{ d.status }}</span>{% endif %}</td>
+    <td class="max-w-[160px] truncate">{{ d.tx_hash or d.txid or '—' }}</td>
+    <td class="text-slate-400">{{ d.created_at }}</td>
+    <td>
+      {% if d.status == 'pending' %}
+      <form method="post" action="/deposits/action" class="flex gap-1 items-center">
+        <input type="hidden" name="dep_id" value="{{ d.id }}">
+        <input name="txid" placeholder="txid" class="w-28">
+        <button class="btn btn-green" name="action" value="approve">Credit</button>
+        <button class="btn btn-red" name="action" value="fail">Fail</button>
+      </form>
+      {% else %}<span class="text-slate-600">—</span>{% endif %}
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="9" class="text-slate-500">No deposits.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

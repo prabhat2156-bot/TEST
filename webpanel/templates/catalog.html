@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Catalog{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">Catalog &amp; Stock</h1>
+
+<div class="grid lg:grid-cols-2 gap-4 mb-4">
+  <form method="post" action="/catalog/category" class="card p-4 space-y-2">
+    <div class="font-medium">Add Category</div>
+    <input name="name" placeholder="Category name (e.g. OTT)">
+    <input name="emoji" placeholder="Emoji (e.g. 🎬)">
+    <button class="btn" name="action" value="add">Add Category</button>
+  </form>
+  <form method="post" action="/catalog/product" class="card p-4 space-y-2">
+    <div class="font-medium">Add Product</div>
+    <select name="category_id">
+      {% for c in cats %}<option value="{{ c.id }}">{{ c.emoji }} {{ c.name }}</option>{% endfor %}
+    </select>
+    <input name="name" placeholder="Product name (e.g. Netflix 1 Month)">
+    <input name="emoji" placeholder="Emoji">
+    <input name="price" placeholder="Price in USDT">
+    <input name="duration" placeholder="Duration (e.g. 30 days)">
+    <textarea name="description" rows="2" placeholder="Description"></textarea>
+    <button class="btn" name="action" value="add">Add Product</button>
+  </form>
+</div>
+
+<div class="card p-3 mb-4 overflow-x-auto">
+  <div class="font-medium mb-2 px-1">Categories</div>
+  <table class="w-full min-w-[520px]">
+    <tr><th>ID</th><th>Name</th><th>Active</th><th></th></tr>
+    {% for c in cats %}
+    <tr><td>{{ c.id }}</td><td>{{ c.emoji }} {{ c.name }}</td><td>{{ 'Yes' if c.active else 'No' }}</td>
+      <td><form method="post" action="/catalog/category" class="flex gap-1">
+        <input type="hidden" name="cid" value="{{ c.id }}">
+        <button class="btn btn-gray" name="action" value="toggle">Toggle</button>
+        <button class="btn btn-red" name="action" value="delete">Delete</button>
+      </form></td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card p-3 overflow-x-auto">
+  <div class="font-medium mb-2 px-1">Products</div>
+  <table class="w-full min-w-[820px]">
+    <tr><th>ID</th><th>Name</th><th>Price</th><th>Duration</th><th>Stock</th><th>Active</th><th></th></tr>
+    {% for p in prods %}
+    <tr><td>{{ p.id }}</td><td>{{ p.emoji }} {{ p.name }}</td>
+      <td>{{ '%.2f'|format(p.price_usdt or 0) }}</td><td>{{ p.duration }}</td>
+      <td>{{ p.stock }}</td><td>{{ 'Yes' if p.active else 'No' }}</td>
+      <td class="flex flex-wrap gap-1">
+        <a class="btn" href="/stock/{{ p.id }}">Add / View Stock</a>
+        <form method="post" action="/catalog/product" class="flex gap-1">
+          <input type="hidden" name="pid" value="{{ p.id }}">
+          <button class="btn btn-gray" name="action" value="toggle">Toggle</button>
+          <button class="btn btn-red" name="action" value="delete">Delete</button>
+        </form>
+      </td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

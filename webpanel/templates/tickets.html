@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Tickets{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
+  <h1 class="text-xl font-semibold">🎧 Support Tickets</h1>
+  <div class="flex gap-2">
+    <a class="btn {{ '' if scope=='open' else 'btn-gray' }}" href="/tickets?scope=open">Open</a>
+    <a class="btn {{ '' if scope=='all' else 'btn-gray' }}" href="/tickets?scope=all">All</a>
+  </div>
+</div>
+
+<div class="card p-3 overflow-x-auto">
+  <table>
+    <thead><tr><th>#</th><th>User</th><th>Subject</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+    {% for t in rows %}
+      <tr>
+        <td>{{ t.id }}</td>
+        <td>{{ ('@' ~ t.username) if t.username else t.user_id }}</td>
+        <td class="max-w-[360px] truncate">{{ t.subject }}</td>
+        <td>{% if t.status == 'open' %}<span class="pill pill-warn">open</span>
+            {% else %}<span class="pill pill-mut">closed</span>{% endif %}</td>
+        <td class="text-slate-400">{{ t.updated_at }}</td>
+        <td><a class="btn" href="/tickets/{{ t.id }}">Open</a></td>
+      </tr>
+    {% else %}<tr><td colspan="6" class="text-slate-500">No tickets.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

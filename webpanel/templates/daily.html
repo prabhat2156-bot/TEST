@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Daily Report{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-1">📅 Daily Report</h1>
+<p class="text-xs text-slate-400 mb-4">{{ date }}</p>
+
+<form method="get" class="card p-3 flex gap-2 items-end mb-4 max-w-xl">
+  <div class="flex-1"><label class="text-xs text-slate-400">Date (YYYY-MM-DD)</label>
+    <input name="date" value="{{ date }}"></div>
+  <button class="btn">View</button>
+</form>
+
+<div class="flex gap-2 flex-wrap mb-4">
+  {% for d in recent %}<a class="btn btn-gray" href="/daily?date={{ d }}">{{ d }}</a>{% endfor %}
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+  <div class="card p-4"><div class="text-xs text-slate-400">Orders</div>
+    <div class="text-xl font-semibold mt-1">{{ r.ord_count }}</div>
+    <div class="text-[11px] text-slate-500">{{ '%.2f'|format(r.ord_amount or 0) }} USDT</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Deposits credited</div>
+    <div class="text-xl font-semibold mt-1">{{ r.dep_count }}</div>
+    <div class="text-[11px] text-slate-500">{{ '%.2f'|format(r.dep_amount or 0) }} USDT</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Failed / expired</div>
+    <div class="text-xl font-semibold mt-1">{{ r.dep_failed }}</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">New users</div>
+    <div class="text-xl font-semibold mt-1">{{ r.new_users }}</div>
+    <div class="text-[11px] text-slate-500">total {{ r.total_users_now }}</div></div>
+</div>
+
+<div class="card p-4 mb-4">
+  <div class="text-xs text-slate-400">Current total wallet balance (all users)</div>
+  <div class="text-lg font-semibold">{{ '%.2f'|format(r.total_balance_now or 0) }} USDT</div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-4">
+  <div class="card p-3 overflow-x-auto">
+    <div class="font-medium mb-2 px-1">Deposits that day</div>
+    <table><thead><tr><th>#</th><th>User</th><th>Amount</th><th>Network</th></tr></thead><tbody>
+      {% for d in r.deposits %}<tr><td>{{ d.id }}</td>
+        <td>{{ ('@' ~ d.username) if d.username else d.user_id }}</td>
+        <td>{{ '%.2f'|format(d.requested_usdt or 0) }}</td><td>{{ d.network or '' }}</td></tr>
+      {% else %}<tr><td colspan="4" class="text-slate-500">None.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="card p-3 overflow-x-auto">
+    <div class="font-medium mb-2 px-1">Orders that day</div>
+    <table><thead><tr><th>#</th><th>User</th><th>Product</th><th>Amount</th></tr></thead><tbody>
+      {% for o in r.orders %}<tr><td>{{ o.id }}</td>
+        <td>{{ ('@' ~ o.username) if o.username else o.user_id }}</td>
+        <td class="max-w-[200px] truncate">{{ o.product_name }}</td>
+        <td>{{ '%.2f'|format(o.amount_usdt or 0) }}</td></tr>
+      {% else %}<tr><td colspan="4" class="text-slate-500">None.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}

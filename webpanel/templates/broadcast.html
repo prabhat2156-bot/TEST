@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Broadcast{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-1">📢 Broadcast</h1>
+<p class="text-xs text-slate-400 mb-4">Sends a Telegram message from the store bot. HTML formatting supported.</p>
+
+<div class="grid lg:grid-cols-3 gap-4">
+  <form method="post" class="card p-4 space-y-3 lg:col-span-2">
+    <textarea name="text" rows="8" placeholder="<b>Hello!</b> New stock is live 🎉"></textarea>
+    <div class="flex gap-2 items-end flex-wrap">
+      <div class="w-48">
+        <label class="text-xs text-slate-400">Target</label>
+        <select name="target">
+          <option value="all">All users ({{ total_users }})</option>
+          <option value="unbanned">Unbanned users only</option>
+          <option value="buyers">Buyers only</option>
+        </select>
+      </div>
+      <button class="btn" {{ 'disabled' if state.running }}>🚀 Start broadcast</button>
+    </div>
+  </form>
+
+  <div class="card p-4">
+    <div class="font-medium mb-2">Status</div>
+    <div id="st" class="text-sm space-y-1 text-slate-300"></div>
+  </div>
+</div>
+
+<script>
+async function poll(){
+  try{
+    const r = await fetch('/broadcast/status'); const s = await r.json();
+    document.getElementById('st').innerHTML =
+      `<div>State: <b>${s.running ? 'running…' : 'idle'}</b></div>`+
+      `<div>Sent: <b>${s.sent}</b> / ${s.total}</div>`+
+      `<div>Failed: <b>${s.failed}</b></div>`+
+      `<div class="text-xs text-slate-500">Started: ${s.started || '-'}</div>`+
+      `<div class="text-xs text-slate-500">Finished: ${s.finished || '-'}</div>`;
+  }catch(e){}
+}
+poll(); setInterval(poll, 2000);
+</script>
+{% endblock %}

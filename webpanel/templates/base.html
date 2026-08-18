@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b14">
+  <title>{% block title %}Admin Panel{% endblock %}</title>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{--bg:#070b14;--card:#111828;--line:#1e2740;--txt:#e8ebf5;--mut:#8b95b3;--acc:#6366f1;
+          --nav-h:56px;--safe:env(safe-area-inset-bottom,0px)}
+    *{-webkit-tap-highlight-color:transparent}
+    html{-webkit-text-size-adjust:100%}
+    body{background:radial-gradient(1200px 600px at 15% -10%,#1b2450 0%,#070b14 55%);
+         background-attachment:fixed;color:var(--txt);
+         font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Color Emoji",sans-serif;
+         min-height:100vh;overflow-x:hidden}
+    .card{background:linear-gradient(180deg,#131b2e,#0f1626);border:1px solid var(--line);
+          border-radius:16px;box-shadow:0 10px 30px -20px #000}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;
+         background:linear-gradient(180deg,#6366f1,#4f46e5);color:#fff;padding:.5rem .9rem;
+         border-radius:10px;font-size:.82rem;font-weight:500;transition:.15s;border:1px solid #4f46e5;
+         min-height:38px;cursor:pointer;white-space:nowrap}
+    .btn:hover{filter:brightness(1.12)}
+    .btn:active{transform:scale(.97)}
+    .btn-red{background:linear-gradient(180deg,#ef4444,#dc2626);border-color:#dc2626}
+    .btn-green{background:linear-gradient(180deg,#10b981,#059669);border-color:#059669}
+    .btn-gray{background:#1c2540;border-color:#2a3559}
+    .btn-amber{background:linear-gradient(180deg,#f59e0b,#d97706);border-color:#d97706}
+    input,textarea,select{background:#0b1120;border:1px solid #26304d;border-radius:10px;
+      padding:.55rem .7rem;color:var(--txt);font-size:16px;width:100%;outline:none}
+    @media(min-width:768px){input,textarea,select{font-size:.85rem}}
+    input:focus,textarea:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px #6366f130}
+    table{width:100%;border-collapse:collapse;font-size:.82rem}
+    th{text-align:left;color:var(--mut);font-weight:600;font-size:.7rem;letter-spacing:.04em;
+       text-transform:uppercase;padding:.55rem .6rem;border-bottom:1px solid var(--line);
+       position:sticky;top:0;background:#101728;z-index:1}
+    td{padding:.6rem;border-bottom:1px solid #161d33;vertical-align:middle}
+    tr:last-child td{border-bottom:0}
+    tbody tr:hover{background:#141c31}
+    .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    a.navlink{display:flex;align-items:center;gap:.6rem;padding:.65rem .8rem;border-radius:10px;
+              font-size:.9rem;color:#b9c2dc;transition:.15s}
+    a.navlink:hover,a.navlink.active{background:#1b2542;color:#fff}
+    .pill{display:inline-block;padding:.14rem .55rem;border-radius:999px;font-size:.68rem;font-weight:600}
+    .pill-ok{background:#064e3b;color:#6ee7b7}.pill-bad{background:#4c1d1d;color:#fca5a5}
+    .pill-warn{background:#4a3308;color:#fcd34d}.pill-mut{background:#1e2740;color:#9aa6c7}
+    ::-webkit-scrollbar{height:7px;width:7px}::-webkit-scrollbar-thumb{background:#243052;border-radius:8px}
+
+    /* ── mobile drawer (pure CSS, no JS) ─────────────────────────────── */
+    #navtoggle{display:none}
+    .topbar{display:none}
+    .scrim{display:none}
+    @media(max-width:767px){
+      .topbar{display:flex;position:sticky;top:0;z-index:40;align-items:center;gap:.6rem;
+              height:var(--nav-h);padding:0 .85rem;background:#0a1020ee;backdrop-filter:blur(10px);
+              border-bottom:1px solid var(--line)}
+      .sidebar{position:fixed;inset:0 auto 0 0;width:78%;max-width:290px;z-index:60;
+               transform:translateX(-102%);transition:transform .22s ease;background:#0a1020;
+               border-right:1px solid var(--line);overflow-y:auto;padding-bottom:calc(1rem + var(--safe))}
+      #navtoggle:checked~.shell .sidebar{transform:translateX(0)}
+      #navtoggle:checked~.shell .scrim{display:block;position:fixed;inset:0;z-index:50;background:#000a}
+      main{padding:.85rem !important}
+      .card{border-radius:14px}
+      table{font-size:.78rem;min-width:auto}
+    }
+  </style>
+</head>
+<body>
+{% if session.get('admin') %}
+{% set p = request.path %}
+{% set nav = [('/','📊','Dashboard'),('/deposits','💰','Deposits'),('/orders','🛒','Sales / Orders'),
+              ('/users','👥','Users'),('/catalog','📦','Catalog & Stock'),('/free','🎁','Free Items'),
+              ('/coupons','🏷️','Coupons'),('/tickets','🎧','Tickets'),('/finance','🏦','Refunds & Resellers'),
+              ('/broadcast','📢','Broadcast'),('/daily','📅','Daily Report'),('/tg','📱','TG Accounts'),
+              ('/wa','💬','WhatsApp'),('/settings','⚙️','Settings')] %}
+<input type="checkbox" id="navtoggle">
+<div class="shell">
+  <label class="scrim" for="navtoggle"></label>
+  <div class="flex min-h-screen">
+    <aside class="sidebar w-60 shrink-0 border-r border-[#18203a] p-3 md:sticky md:top-0 md:h-screen md:overflow-y-auto">
+      <div class="px-2 py-4 flex items-start justify-between">
+        <div>
+          <div class="font-semibold text-lg">⚡ Bot Admin</div>
+          <div class="text-[11px] text-slate-500">signed in as {{ session.get('admin') }}</div>
+        </div>
+        <label for="navtoggle" class="md:hidden text-slate-400 text-xl px-2 cursor-pointer">✕</label>
+      </div>
+      <nav class="space-y-1">
+        {% for href, icon, label in nav %}
+        <a class="navlink {{ 'active' if (href == '/' and p == '/') or (href != '/' and p.startswith(href)) }}"
+           href="{{ href }}">{{ icon }} {{ label }}</a>
+        {% endfor %}
+        <a class="navlink" href="/logout">🚪 Logout</a>
+      </nav>
+    </aside>
+
+    <div class="flex-1 min-w-0 flex flex-col">
+      <header class="topbar">
+        <label for="navtoggle" class="btn btn-gray px-3">☰</label>
+        <div class="font-semibold text-sm truncate">{% block mtitle %}⚡ Bot Admin{% endblock %}</div>
+        <a href="/logout" class="ml-auto text-xs text-slate-400">Logout</a>
+      </header>
+      <main class="flex-1 p-4 md:p-6 min-w-0">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for cat, msg in messages %}
+            <div class="mb-3 px-3 py-2 rounded-xl text-sm border {{ 'bg-red-950/50 border-red-900 text-red-200' if cat=='error' else 'bg-emerald-950/50 border-emerald-900 text-emerald-200' }}">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</div>
+{% else %}
+  {% block anon %}{% endblock %}
+{% endif %}
+</body>
+</html>
