@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">⚙️ Settings</h1>
+
+<div class="card p-4 mb-4">
+  <div class="font-medium mb-3">Switches</div>
+  <div class="flex flex-wrap gap-2">
+    {% for key, label, on in toggles %}
+    <form method="post">
+      <input type="hidden" name="key" value="{{ key }}">
+      <button class="btn {{ 'btn-green' if on else 'btn-gray' }}" name="action" value="toggle">
+        {{ label }} · {{ 'ON' if on else 'OFF' }}</button>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
+<form method="post" class="card p-4 mb-4">
+  <div class="font-medium mb-3">Bot configuration</div>
+  <div class="grid md:grid-cols-2 gap-3">
+    {% for key, label, kind, value in quick %}
+    <div><label class="text-xs text-slate-400">{{ label }}</label>
+      <input name="{{ key }}" value="{{ value }}" {% if kind=='number' %}type="number" step="any"{% endif %}></div>
+    {% endfor %}
+  </div>
+  <button class="btn mt-3" name="action" value="quick">💾 Save all</button>
+</form>
+
+<div class="grid lg:grid-cols-2 gap-4 mb-4">
+  <form method="post" class="card p-4 space-y-2">
+    <div class="font-medium">Custom store setting</div>
+    <input name="key" placeholder="key (e.g. force_join_channels)">
+    <input name="value" placeholder="value">
+    <button class="btn" name="action" value="set">Save</button>
+  </form>
+  <form method="post" class="card p-4 space-y-2">
+    <div class="font-medium">OTP-bot setting</div>
+    <input name="key" placeholder="key (e.g. usdt_rate)">
+    <input name="value" placeholder="value">
+    <button class="btn" name="action" value="set_otp">Save</button>
+  </form>
+</div>
+
+<div class="card p-4 mb-4">
+  <div class="font-medium mb-2">Extra admins</div>
+  <form method="post" class="flex flex-col md:flex-row gap-2 mb-3 max-w-md">
+    <input name="user_id" placeholder="Telegram user id">
+    <button class="btn whitespace-nowrap" name="action" value="add_admin">Add admin</button>
+  </form>
+  <div class="flex flex-wrap gap-2">
+    {% for a in admins %}
+    <form method="post" class="flex items-center gap-2 bg-[#0f1524] px-2 py-1 rounded-lg border border-[#26304d]">
+      <span class="text-sm">{{ a }}</span>
+      <input type="hidden" name="user_id" value="{{ a }}">
+      <button class="btn btn-red" name="action" value="remove_admin">×</button>
+    </form>
+    {% else %}<span class="text-slate-500 text-sm">No extra admins.</span>{% endfor %}
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-4">
+  <div class="card p-3 overflow-x-auto">
+    <div class="font-medium mb-2 px-1">All store settings</div>
+    <table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>
+      {% for r in rows %}<tr><td class="font-mono text-xs">{{ r.key }}</td>
+        <td class="max-w-[320px] truncate">{{ r.value }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+  <div class="card p-3 overflow-x-auto">
+    <div class="font-medium mb-2 px-1">All OTP settings</div>
+    <table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>
+      {% for r in otp_rows %}<tr><td class="font-mono text-xs">{{ r.key }}</td>
+        <td class="max-w-[320px] truncate">{{ r.value }}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-4">WhatsApp Accounts</h1>
+
+<div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+  <div class="card p-4"><div class="text-xs text-slate-400">Available</div><div class="text-lg">{{ rows|selectattr('available')|list|length }}</div></div>
+  <div class="card p-4"><div class="text-xs text-slate-400">Delivered</div><div class="text-lg">{{ sold }}</div></div>
+  <form method="post" class="card p-4">
+    <div class="text-xs text-slate-400 mb-2">Sales: {{ 'ON' if enabled else 'OFF' }}</div>
+    <button class="btn" name="action" value="toggle_sales">Toggle sales</button>
+  </form>
+</div>
+
+<form method="post" class="card p-4 space-y-2 mb-4">
+  <div class="font-medium">Add Stock — one per line: <code class="text-xs">phone|price|country|2fa|note</code></div>
+  <textarea name="items" rows="6" placeholder="919999999999|70|India|123456|fresh"></textarea>
+  <button class="btn" name="action" value="add">Add Numbers</button>
+</form>
+
+<form method="post" class="card p-4 flex flex-col md:flex-row gap-2 mb-4">
+  <input name="country" placeholder="Country to reprice">
+  <input name="price" placeholder="New price">
+  <button class="btn whitespace-nowrap" name="action" value="price_country">Update pricing</button>
+</form>
+
+<div class="card p-3 overflow-x-auto">
+<table class="w-full min-w-[760px]">
+  <tr><th>Phone</th><th>Country</th><th>Price</th><th>2FA</th><th>Status</th><th>Added</th><th></th></tr>
+  {% for r in rows %}
+  <tr><td>+{{ r.phone }}</td><td>{{ r.country }}</td><td>{{ r.price }}</td><td>{{ r.twofa }}</td>
+    <td>{{ 'available' if r.available else 'sold' }}</td><td>{{ r.added_at }}</td>
+    <td><form method="post"><input type="hidden" name="phone" value="{{ r.phone }}">
+      <button class="btn btn-red" name="action" value="delete">Delete</button></form></td></tr>
+  {% else %}<tr><td colspan="7" class="text-slate-500">No WhatsApp stock.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

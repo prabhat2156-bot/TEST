@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-xl font-semibold">👥 Users</h1>
+  <a class="btn btn-gray" href="/export/users">⬇ Export TXT</a>
+</div>
+<form class="card p-3 mb-4 flex gap-2" method="get">
+  <input name="q" value="{{ q }}" placeholder="Search by ID, username or name">
+  <button class="btn">Search</button>
+</form>
+<div class="card p-3 overflow-x-auto">
+<table class="min-w-[900px]">
+  <thead><tr><th>ID</th><th>Username</th><th>Name</th><th>Balance</th><th>Orders</th><th>Status</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for u in users %}
+  <tr>
+    <td><a class="text-indigo-400" href="/users/{{ u.user_id }}">{{ u.user_id }}</a></td>
+    <td>{{ ('@' ~ u.username) if u.username else '—' }}</td>
+    <td>{{ u.full_name or '—' }}</td>
+    <td>{{ '%.2f'|format(u.balance or 0) }}</td>
+    <td>{{ u.total_orders or 0 }}</td>
+    <td>{% if u.is_banned %}<span class="pill pill-bad">banned</span>
+        {% elif u.is_vip %}<span class="pill pill-warn">vip</span>
+        {% else %}<span class="pill pill-ok">active</span>{% endif %}</td>
+    <td>
+      <form method="post" action="/users/action" class="flex flex-wrap gap-1 items-center">
+        <input type="hidden" name="user_id" value="{{ u.user_id }}">
+        <input name="amount" placeholder="USDT" class="w-24">
+        <button class="btn" name="action" value="balance">Balance +/-</button>
+        <button class="btn btn-green" name="action" value="credit">Credit Deposit</button>
+        <button class="btn btn-amber" name="action" value="gift">Gift</button>
+        {% if u.is_banned %}
+          <button class="btn btn-gray" name="action" value="unban">Unban</button>
+        {% else %}
+          <button class="btn btn-red" name="action" value="ban">Ban</button>
+        {% endif %}
+      </form>
+    </td>
+  </tr>
+  {% else %}<tr><td colspan="7" class="text-slate-500">No users found.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
