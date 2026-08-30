@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: bass-tg-store
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: WEB_ADMIN_USERNAME
+        sync: false
+      - key: WEB_ADMIN_PASSWORD
+        sync: false
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: USDT_TRC20_ADDRESS
+        sync: false
+      - key: USDT_BEP20_ADDRESS
+        sync: false
+      - key: BINANCE_PAY_ID
+        sync: false
+      - key: LOG_CHANNEL_ID
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.9
