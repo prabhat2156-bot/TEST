@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ bot_name }} — Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+</head>
+<body>
+
+  <div class="backdrop" id="backdrop"></div>
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-name">{{ bot_name }}</div>
+      <div class="brand-sub">Admin Console</div>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="nav-label">Overview</div>
+      <div class="nav-item active" data-view="dashboard">Dashboard</div>
+
+      <div class="nav-label">Sales</div>
+      <div class="nav-item" data-view="orders">Orders</div>
+      <div class="nav-item" data-view="deposits">Deposits</div>
+      <div class="nav-item" data-view="manual-deposit">Manual Deposit</div>
+      <div class="nav-item" data-view="gift-balance">Gift Balance</div>
+      <div class="nav-item" data-view="refunds">Refund Requests</div>
+      <div class="nav-item" data-view="coupons">Coupons</div>
+
+      <div class="nav-label">Catalog</div>
+      <div class="nav-item" data-view="categories">Categories</div>
+      <div class="nav-item" data-view="products">Products</div>
+      <div class="nav-item" data-view="stock">Stock</div>
+      <div class="nav-item" data-view="free-items">Free Items</div>
+
+      <div class="nav-label">People</div>
+      <div class="nav-item" data-view="users">Users</div>
+      <div class="nav-item" data-view="user-history">User History</div>
+      <div class="nav-item" data-view="tickets">Tickets</div>
+      <div class="nav-item" data-view="admins">Admins</div>
+
+      <div class="nav-label">System</div>
+      <div class="nav-item" data-view="broadcast">Broadcast</div>
+      <div class="nav-item" data-view="daily-history">Daily History</div>
+      <div class="nav-item" data-view="settings">Settings</div>
+    </nav>
+    <div class="sidebar-foot">
+      {{ admin_user }} · <a href="{{ url_for('logout') }}" style="color:#e7834f;">Log out</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="mobile-topbar">
+      <button class="hamburger" id="hamburgerBtn">☰</button>
+      <div class="mt-brand">{{ bot_name }} — Admin</div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <section class="view active" id="view-dashboard">
+      <div class="topbar"><div><div class="page-title">Dashboard</div><div class="page-sub">Today's summary</div></div></div>
+      <div class="stats-grid" id="dashStats"><div class="loading">Loading…</div></div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head"><h3>Recent Orders</h3></div>
+          <table><thead><tr><th>ID</th><th>User</th><th>Product</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody id="dashRecentOrders"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody></table>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Quick Actions</h3></div>
+          <div style="padding:14px 16px;">
+            <div class="quick-grid">
+              <div class="quick-btn" data-goto="stock">＋ Add Stock</div>
+              <div class="quick-btn" data-goto="manual-deposit">Manual Deposit</div>
+              <div class="quick-btn" data-goto="broadcast">Broadcast</div>
+              <div class="quick-btn" data-goto="gift-balance">Gift Balance</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ORDERS -->
+    <section class="view" id="view-orders">
+      <div class="topbar">
+        <div><div class="page-title">Orders</div><div class="page-sub">Today & all-time</div></div>
+        <div class="row-actions">
+          <button class="btn" data-order-scope="today">Today</button>
+          <button class="btn" data-order-scope="all">All</button>
+        </div>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>ID</th><th>User</th><th>Product</th><th>Amount</th><th>Status</th><th>Date & Time</th></tr></thead>
+        <tbody id="ordersBody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- DEPOSITS -->
+    <section class="view" id="view-deposits">
+      <div class="topbar">
+        <div><div class="page-title">Deposits</div><div class="page-sub">USDT TRC20 / BEP20</div></div>
+        <div class="row-actions">
+          <button class="btn" data-dep-scope="today">Today</button>
+          <button class="btn" data-dep-scope="pending">Pending</button>
+          <button class="btn" data-dep-scope="all">All</button>
+        </div>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>ID</th><th>User</th><th>Network</th><th>Amount</th><th>Status</th><th>Date & Time</th><th>Action</th></tr></thead>
+        <tbody id="depositsBody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- MANUAL DEPOSIT -->
+    <section class="view" id="view-manual-deposit">
+      <div class="topbar"><div><div class="page-title">Manual Deposit</div><div class="page-sub">Credit a user's balance for an off-chain payment</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="manualDepositForm">
+          <div class="form-grid">
+            <div class="field"><label>User ID</label><input name="user_id" required placeholder="e.g. 8395315423"></div>
+            <div class="field"><label>Amount (USDT)</label><input name="amount" required placeholder="e.g. 10.00"></div>
+            <div class="field" style="grid-column:1/-1;"><label>TXID / Note</label><input name="txid" placeholder="optional reference"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Credit Balance</button></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- GIFT BALANCE -->
+    <section class="view" id="view-gift-balance">
+      <div class="topbar"><div><div class="page-title">Gift Balance</div><div class="page-sub">Send free balance to a user</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="giftForm">
+          <div class="form-grid">
+            <div class="field"><label>User ID</label><input name="user_id" required placeholder="e.g. 8395315423"></div>
+            <div class="field"><label>Gift amount (USDT)</label><input name="amount" required placeholder="e.g. 2.00"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Send Gift</button></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- REFUND REQUESTS -->
+    <section class="view" id="view-refunds">
+      <div class="topbar">
+        <div><div class="page-title">Refund Requests</div></div>
+        <div class="row-actions">
+          <button class="btn" data-refund-scope="pending">Pending</button>
+          <button class="btn" data-refund-scope="all">All</button>
+        </div>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>ID</th><th>User</th><th>Order</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="refundsBody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- COUPONS -->
+    <section class="view" id="view-coupons">
+      <div class="topbar"><div><div class="page-title">Coupons</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="couponForm">
+          <div class="form-grid">
+            <div class="field"><label>Code</label><input name="code" required placeholder="e.g. WELCOME10"></div>
+            <div class="field"><label>Discount %</label><input name="discount" required placeholder="e.g. 10"></div>
+            <div class="field"><label>Max uses</label><input name="max_uses" required placeholder="e.g. 500"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">+ New Coupon</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>Code</th><th>Discount</th><th>Uses</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="couponsBody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- CATEGORIES -->
+    <section class="view" id="view-categories">
+      <div class="topbar"><div><div class="page-title">Categories</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="categoryForm">
+          <div class="form-grid">
+            <div class="field"><label>Category name</label><input name="name" required placeholder="e.g. Streaming"></div>
+            <div class="field"><label>Emoji</label><input name="emoji" placeholder="e.g. 🎬"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Add Category</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>Name</th><th>Products</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="categoriesBody"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- PRODUCTS -->
+    <section class="view" id="view-products">
+      <div class="topbar"><div><div class="page-title">Products</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="productForm">
+          <div class="form-grid">
+            <div class="field"><label>Category</label><select name="category_id" id="productCategorySelect" required></select></div>
+            <div class="field"><label>Product name</label><input name="name" required placeholder="e.g. Netflix Premium 1M"></div>
+            <div class="field"><label>Emoji</label><input name="emoji" placeholder="e.g. 🎬"></div>
+            <div class="field"><label>Price (USDT)</label><input name="price" required placeholder="e.g. 3.20"></div>
+            <div class="field"><label>Duration</label><input name="duration" placeholder="e.g. 1 Month"></div>
+            <div class="field" style="grid-column:1/-1;">
+              <label>Description (multi-line, HTML formatting allowed)</label>
+              <textarea name="description" rows="6" placeholder="⚡ Full HD (1080p) Streaming
+📱 Watch on Mobile, Tablet, Laptop &amp; TV
+👥 Up to 2 devices at the same time
+⬇️ Download for offline viewing
+
+💎 QUICK REDEEM GUIDE
+1. Click the link sent after purchase
+2. Log into your account
+3. Enjoy instantly!"></textarea>
+              <div class="helptext">Tip: use <code>&lt;b&gt;bold&lt;/b&gt;</code> for headings. Don't paste a copied premium emoji directly — it shows as a blank box. To use a premium emoji here, write <code>&lt;tg-emoji emoji-id="YOUR_ID"&gt;⚡&lt;/tg-emoji&gt;</code> (get the ID from @getidsbot). Plain emoji (⚡📱✅) always work too, no ID needed.</div>
+            </div>
+            <div class="field" style="grid-column:1/-1;"><label>Premium Emoji ID (optional)</label><input name="emoji_id" placeholder="Telegram custom emoji ID — right-click a premium emoji → Copy → paste the numeric ID here"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Add Product</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Action</th></tr></thead>
+        <tbody id="productsBody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- STOCK -->
+    <section class="view" id="view-stock">
+      <div class="topbar"><div><div class="page-title">Stock</div><div class="page-sub">Add delivery stock (one item per line)</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="stockAddForm">
+          <div class="form-grid full">
+            <div class="field"><label>Product</label><select name="product_id" id="stockProductSelect" required></select></div>
+            <div class="field"><label>Stock data — one item per line (email:password OR a link — both work)</label><textarea name="data" rows="4" placeholder="user1@gmail.com:pass1&#10;user2@gmail.com:pass2&#10;https://t.me/joinlink_or_any_activation_link" required></textarea></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Add Stock</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>Product</th><th>In Stock</th><th>Action</th></tr></thead>
+        <tbody id="stockBody"><tr><td colspan="3" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- FREE ITEMS -->
+    <section class="view" id="view-free-items">
+      <div class="topbar"><div><div class="page-title">Free Items</div><div class="page-sub">Giveaway / promo stock</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="freeItemForm">
+          <div class="form-grid">
+            <div class="field"><label>Item name</label><input name="name" required placeholder="e.g. Trial Key — 1 Day"></div>
+            <div class="field"><label>Emoji</label><input name="emoji" placeholder="🎁"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Add Free Item</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>Item</th><th>Remaining</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="freeItemsBody"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- USERS -->
+    <section class="view" id="view-users">
+      <div class="topbar"><div><div class="page-title">Users</div></div></div>
+      <div class="panel" style="padding:14px 16px;">
+        <input id="userSearchInput" placeholder="Search by user ID or @username" style="max-width:360px;">
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>User</th><th>Balance</th><th>Orders</th><th>Action</th></tr></thead>
+        <tbody id="usersBody"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- USER HISTORY -->
+    <section class="view" id="view-user-history">
+      <div class="topbar"><div><div class="page-title">User History</div><div class="page-sub">Full order + deposit history for one user</div></div></div>
+      <div class="panel" style="padding:14px 16px;">
+        <input id="userHistorySearch" placeholder="Enter user ID" style="max-width:360px;">
+        <button class="btn sm" id="userHistoryGoBtn" style="margin-left:8px;">Search</button>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3 id="userHistoryName">—</h3></div>
+        <table><thead><tr><th>Date & Time</th><th>Type</th><th>Detail</th><th>Amount</th></tr></thead>
+          <tbody id="userHistoryBody"><tr><td colspan="4" class="empty">Search a user ID above.</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <!-- TICKETS -->
+    <section class="view" id="view-tickets">
+      <div class="topbar">
+        <div><div class="page-title">Tickets</div><div class="page-sub">Support requests</div></div>
+        <div class="row-actions">
+          <button class="btn" data-ticket-scope="open">Open</button>
+          <button class="btn" data-ticket-scope="all">All</button>
+        </div>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>ID</th><th>User</th><th>Subject</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="ticketsBody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- ADMINS -->
+    <section class="view" id="view-admins">
+      <div class="topbar"><div><div class="page-title">Admins</div></div></div>
+      <div class="panel" style="padding:14px 16px;">
+        <form id="adminAddForm">
+          <div class="form-grid"><div class="field"><label>User ID to add</label><input name="user_id" required placeholder="e.g. 123456789"></div></div>
+          <div class="form-actions"><button class="btn primary" type="submit">Add Admin</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>User ID</th><th>Role</th><th>Action</th></tr></thead>
+        <tbody id="adminsBody"><tr><td colspan="3" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- BROADCAST -->
+    <section class="view" id="view-broadcast">
+      <div class="topbar"><div><div class="page-title">Broadcast</div><div class="page-sub">Send a message to all bot users</div></div></div>
+      <div class="panel" style="padding:18px;">
+        <form id="broadcastForm">
+          <textarea name="message" rows="5" placeholder="Write your broadcast message…" required></textarea>
+          <div class="form-actions"><button class="btn primary" type="submit">Send Broadcast</button></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- DAILY HISTORY -->
+    <section class="view" id="view-daily-history">
+      <div class="topbar"><div><div class="page-title">Daily History</div></div></div>
+      <div class="panel"><table>
+        <thead><tr><th>Date</th><th>Orders</th><th>Revenue</th><th>New Users</th></tr></thead>
+        <tbody id="dailyHistoryBody"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings">
+      <div class="topbar"><div><div class="page-title">Settings</div></div></div>
+      <div class="panel">
+        <div class="settings-row"><div class="k">Maintenance mode<small>Temporarily disable the store for users</small></div><div class="toggle" data-setting-key="maintenance"></div></div>
+        <div class="settings-row"><div class="k">Referral program<small>Reward users for inviting friends</small></div><div class="toggle" data-setting-key="referral_on"></div></div>
+      </div>
+      <div class="panel" style="padding:18px;">
+        <form id="settingsForm">
+          <div class="form-grid">
+            <div class="field"><label>Bot name</label><input name="bot_name"></div>
+            <div class="field"><label>Bot emoji</label><input name="bot_emoji"></div>
+            <div class="field"><label>USDT TRC20 address</label><input name="trc20_address"></div>
+            <div class="field"><label>USDT BEP20 address</label><input name="bep20_address"></div>
+            <div class="field"><label>Binance Pay ID</label><input name="binance_pay_id"></div>
+            <div class="field"><label>Log channel ID</label><input name="log_channel_id"></div>
+            <div class="field"><label>Deposit log group ID</label><input name="deposit_log_channel_id"></div>
+            <div class="field"><label>Minimum deposit (USDT)</label><input name="min_deposit"></div>
+            <div class="field"><label>Low stock threshold</label><input name="low_stock_threshold"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" type="submit">Save Settings</button></div>
+        </form>
+      </div>
+      <div class="panel" style="padding:18px;">
+        <label>Force-join channels (max 5)</label>
+        <form id="channelForm" style="margin:10px 0 12px;">
+          <div class="form-grid">
+            <input name="handle" placeholder="@channelusername" required>
+            <input name="url" placeholder="https://t.me/channelusername">
+          </div>
+          <div class="form-actions"><button class="btn" type="submit">+ Add Channel</button></div>
+        </form>
+      </div>
+      <div class="panel"><table>
+        <thead><tr><th>Channel</th><th>Action</th></tr></thead>
+        <tbody id="channelsBody"><tr><td colspan="2" class="loading">Loading…</td></tr></tbody>
+      </table></div>
+    </section>
+
+  </main>
+
+  <!-- Refund detail modal -->
+  <div class="modal-backdrop" id="refundModalBackdrop">
+    <div class="modal">
+      <div class="modal-head"><h3>Refund Request <span id="refundModalId"></span></h3><button class="modal-close" id="refundModalClose">✕</button></div>
+      <div class="modal-body" id="refundModalBody">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Ticket detail modal -->
+  <div class="modal-backdrop" id="ticketModalBackdrop">
+    <div class="modal">
+      <div class="modal-head"><h3>Ticket <span id="ticketModalId"></span></h3><button class="modal-close" id="ticketModalClose">✕</button></div>
+      <div class="modal-body" id="ticketModalBody">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Stock items modal (edit/delete individual items) -->
+  <div class="modal-backdrop" id="stockModalBackdrop">
+    <div class="modal">
+      <div class="modal-head"><h3>Stock Items <span id="stockModalId"></span></h3><button class="modal-close" id="stockModalClose">✕</button></div>
+      <div class="modal-body" id="stockModalBody">Loading…</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='admin.js') }}"></script>
+</body>
+</html>

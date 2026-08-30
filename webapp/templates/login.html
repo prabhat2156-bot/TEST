@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Login — BASS TG STORE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#f6f1e6; font-family:'Inter',sans-serif; color:#1a1c22;
+  }
+  .card{
+    background:#fffdf8; border:1px solid #e3dac2; border-radius:16px;
+    padding:34px 32px; width:100%; max-width:360px;
+  }
+  h1{ font-family:'Playfair Display',serif; font-size:22px; margin-bottom:4px; }
+  p.sub{ color:#8d8672; font-size:12.5px; margin-bottom:22px; }
+  label{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#5b5646; display:block; margin-bottom:6px; }
+  input{
+    width:100%; background:#efe8d8; border:1px solid #e3dac2; border-radius:8px;
+    padding:11px 12px; font-size:14px; margin-bottom:16px; font-family:inherit; color:#1a1c22;
+  }
+  input:focus{ outline:none; border-color:#d9502f; }
+  button{
+    width:100%; background:#d9502f; color:#fff; border:none; border-radius:8px;
+    padding:12px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  button:hover{ filter:brightness(1.06); }
+  .error{
+    background:#fbe6de; color:#b23; border:1px solid #f0c9c0; border-radius:8px;
+    padding:9px 12px; font-size:12.5px; margin-bottom:16px;
+  }
+</style>
+</head>
+<body>
+  <form class="card" method="POST" action="{{ url_for('login') }}">
+    <h1>Admin Panel</h1>
+    <p class="sub">Sign in to manage the store</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <label>Username</label>
+    <input type="text" name="username" autocomplete="username" required autofocus>
+    <label>Password</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button type="submit">Sign In</button>
+  </form>
+</body>
+</html>
