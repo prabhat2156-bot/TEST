@@ -1,7 +1,0 @@
-python-telegram-bot[job-queue]==20.7
-aiohttp==3.9.1
-telethon==1.36.0
-python-dotenv==1.0.1
-pymongo[srv]==4.8.0
-Flask==3.0.3
-waitress==3.0.0
